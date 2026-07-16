@@ -120,8 +120,6 @@ jobs:
 
             ### SHA256 Checksums
 
-            ```sha256sum
             ${{ steps.checksum.outputs.checksums }}
-            ```
 
           token: ${{ secrets.GITHUB_TOKEN }}
