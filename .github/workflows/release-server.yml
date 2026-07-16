@@ -1,0 +1,104 @@
+name: Server Release (auth-server)
+
+on:
+  push:
+    tags:
+      - "server-v*"
+
+jobs:
+  build-server:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: auth-server-x86_64-linux
+            binary: auth-server
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: auth-server-x86_64-macos
+            binary: auth-server
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: auth-server-aarch64-macos
+            binary: auth-server
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: auth-server-x86_64-windows
+            binary: auth-server.exe
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and target
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --bin auth-server --target ${{ matrix.target }}
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p upload
+          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" upload/
+
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            7z a "${{ matrix.artifact }}.zip" ./upload/*
+          else
+            tar -czf "${{ matrix.artifact }}.tar.gz" -C upload "${{ matrix.binary }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.*
+
+  release:
+    needs: build-server
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/server-v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release assets
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec mv {} dist/ \;
+          ls -lh dist/
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum * > ../SHA256SUMS
+          cat ../SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          artifacts: "dist/*,SHA256SUMS"
+          body: |
+            ## auth-server ${{ github.ref_name }}
+
+            Pre-built binaries for:
+            - Linux (x86_64)
+            - macOS (Intel x86_64, Apple Silicon)
+            - Windows (x86_64 MSVC)
+
+            ```sha256sum
+            ${{ steps.checksum.outputs.checksums }}
+            ```
+
+          token: ${{ secrets.GITHUB_TOKEN }}
