@@ -6,7 +6,7 @@ A protocol-agnostic, framework-agnostic Rust library for cookie-based session
 authentication. It provides traits for user lookup and session storage, and a
 ready-to-use `AuthManager` that ties everything together.
 
-Version   : 0.2.0
+Version   : 0.3.0
 License   : MIT
 Author    : mroczect <mroczect@proton.me>
 
@@ -623,7 +623,7 @@ source files (e.g., session.rs).
 CHANGELOG
 ---------
 
-v0.2.0 (unreleased)
+v0.3.0 (unreleased)
 
 Added
   - Workspace layout with librjss library and app example.
