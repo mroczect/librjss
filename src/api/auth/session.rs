@@ -1,7 +1,6 @@
 use rand::Rng;
-use time::{Duration, OffsetDateTime};
+use time::OffsetDateTime;
 
-use crate::api::AuthManager;
 use crate::error::AuthError;
 use crate::handler::types::{SessionId, SessionInfo, SessionStore};
 
@@ -38,7 +37,7 @@ pub(crate) async fn create_session(
 
 pub(crate) async fn validate_session(
     store: &dyn SessionStore,
-    config: &crate::handler::config::AuthConfig,
+    _config: &crate::handler::config::AuthConfig,
     id: &SessionId,
 ) -> Result<SessionInfo, AuthError> {
     let info = store.load(id).await?.ok_or(AuthError::SessionNotFound)?;
