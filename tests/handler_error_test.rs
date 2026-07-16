@@ -60,8 +60,9 @@ fn test_error_display() {
 fn test_error_to_json_body() {
     let json = AuthError::SessionExpired.to_json_body();
     assert_eq!(json["error"], "session expired");
+
     let json = AuthError::Internal("boom".into()).to_json_body();
-    assert!(json["error"].as_str().unwrap().contains("boom"));
+    assert_eq!(json["error"], "internal server error");
 }
 
 #[test]
