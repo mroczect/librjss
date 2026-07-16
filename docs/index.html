@@ -1,0 +1,627 @@
+<!-- Creator     : groff version 1.23.0 -->
+<!-- CreationDate: Fri Jul 17 00:59:19 2026 -->
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+  <head>
+    <meta name="generator" content="groff -Thtml, see www.gnu.org" />
+    <meta http-equiv="Content-Type" content="text/html; charset=US-ASCII" />
+    <meta name="Content-Style" content="text/css" />
+    <style type="text/css">
+      p {
+        margin-top: 0;
+        margin-bottom: 0;
+        vertical-align: top;
+      }
+      pre {
+        margin-top: 0;
+        margin-bottom: 0;
+        vertical-align: top;
+      }
+      table {
+        margin-top: 0;
+        margin-bottom: 0;
+        vertical-align: top;
+      }
+      h1 {
+        text-align: center;
+      }
+    </style>
+    <title>LIBRJSS</title>
+  </head>
+  <body>
+    <h1 align="center">LIBRJSS</h1>
+
+    <a href="#NAME">NAME</a><br />
+    <a href="#SYNOPSIS">SYNOPSIS</a><br />
+    <a href="#DESCRIPTION">DESCRIPTION</a><br />
+    <a href="#MODULES">MODULES</a><br />
+    <a href="#api">api</a><br />
+    <a href="#handler">handler</a><br />
+    <a href="#DATA TYPES">DATA TYPES</a><br />
+    <a href="#TRAITS">TRAITS</a><br />
+    <a href="#CONFIGURATION">CONFIGURATION</a><br />
+    <a href="#ENVIRONMENT">ENVIRONMENT</a><br />
+    <a href="#ERROR HANDLING">ERROR HANDLING</a><br />
+    <a href="#SESSION STORE">SESSION STORE</a><br />
+    <a href="#AUTHMANAGER API">AUTHMANAGER API</a><br />
+    <a href="#COOKIE FUNCTIONS (api::auth::cookies)"
+      >COOKIE FUNCTIONS (api::auth::cookies)</a
+    ><br />
+    <a href="#SESSION FUNCTIONS (api::auth::session)"
+      >SESSION FUNCTIONS (api::auth::session)</a
+    ><br />
+    <a href="#EXAMPLE">EXAMPLE</a><br />
+    <a href="#FILES">FILES</a><br />
+    <a href="#AUTHOR">AUTHOR</a><br />
+    <a href="#LICENSE">LICENSE</a><br />
+    <a href="#SEE ALSO">SEE ALSO</a><br />
+
+    <hr />
+
+    <h2>
+      NAME
+      <a name="NAME"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      librjss &minus; Rust library for cookie-based session authentication
+    </p>
+
+    <h2>
+      SYNOPSIS
+      <a name="SYNOPSIS"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      Cargo.toml: <br />
+      [dependencies] <br />
+      librjss = { git = &quot;https://github.com/mroczect/librjss.git&quot; }
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      Rust source:
+      <br />
+      use librjss::api::AuthManager; <br />
+      use librjss::handler::config::AuthConfig; <br />
+      use librjss::handler::session_store::MemorySessionStore;
+      <br />
+      use librjss::handler::types::{Credentials, UserProvider, SessionStore};
+      <br />
+      use std::sync::Arc;
+    </p>
+
+    <h2>
+      DESCRIPTION
+      <a name="DESCRIPTION"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>librjss</b> is a protocol-agnostic, framework-agnostic Rust library
+      that provides building blocks for cookie-based session authentication. It
+      does not depend on any specific web framework. It defines traits for user
+      lookup and session storage and offers a ready-to-use
+      <b>AuthManager</b> that orchestrates the authentication lifecycle.
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      The library is structured into two main modules: <b>api</b> (high-level
+      manager and cookie helpers) and <b>handler</b> (lower-level types,
+      configuration, error types, session store implementation, and environment
+      loading).
+    </p>
+
+    <h2>
+      MODULES
+      <a name="MODULES"></a>
+    </h2>
+
+    <h3>
+      api
+      <a name="api"></a>
+    </h3>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>api::AuthManager</b>
+      is the central coordinator. It is constructed with an
+      <b>AuthConfig ,</b> a <b>UserProvider ,</b> and a <b>SessionStore .</b> It
+      exposes methods to login, logout, validate, create, and destroy sessions.
+      <b>api::auth::cookies</b> contains functions to create, parse, and delete
+      session cookies. <b>api::auth::session</b> contains low-level session
+      creation, validation, and destruction logic.
+    </p>
+
+    <h3>
+      handler
+      <a name="handler"></a>
+    </h3>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>handler::config</b> provides <b>AuthConfig</b> (defaults, builder with
+      validation, SameSite enum). <b>handler::env</b> implements
+      <b>AuthConfig::from_env()</b> to read configuration from environment
+      variables. <b>handler::error</b> defines the <b>AuthError</b> enum with
+      status code mapping and JSON body generation.
+      <b>handler::session_store</b> contains a <b>MemorySessionStore ,</b> an
+      in-memory session store implementation suitable for development and
+      testing. <b>handler::types</b> contains all core data types and traits:
+      <b>SessionId</b>, <b>Credentials</b>, <b>UserInfo</b>, <b>SessionInfo</b>,
+      <b>HttpResponse</b>, <b>UserProvider</b>, and <b>SessionStore</b>.
+    </p>
+
+    <h2>
+      DATA TYPES
+      <a name="DATA TYPES"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em"><b>SessionId</b></p>
+
+    <p style="margin-left: 18%">
+      A newtype wrapper over String representing a session identifier. Construct
+      with <b>SessionId::new(id)</b>. Use <b>.as_str()</b> to get a &amp;str.
+      Implements Display, Eq, Hash, Serialize, Deserialize.
+    </p>
+
+    <p style="margin-left: 9%"><b>Credentials</b></p>
+
+    <p style="margin-left: 18%">
+      Holds <b>username: String</b> and <b>password: String</b> used for login.
+    </p>
+
+    <p style="margin-left: 9%"><b>UserInfo</b></p>
+
+    <p style="margin-left: 18%">
+      Returned from <b>UserProvider::authenticate()</b>. Fields:
+      <b>user_id:</b>String<b>, extra: serde_json::Value</b> (arbitrary claims).
+    </p>
+
+    <p style="margin-left: 9%"><b>SessionInfo</b></p>
+
+    <p style="margin-left: 18%">
+      Session record stored in the session store. Fields:
+      <b>user_id:</b>String<b>, data: serde_json::Value , issued_at:</b
+      >OffsetDateTime<b>, expires_at:</b>OffsetDateTime<b>, idle_deadline:</b
+      >Option&lt;OffsetDateTime&gt;<b>.</b>
+    </p>
+
+    <p style="margin-left: 9%"><b>HttpResponse</b></p>
+
+    <p style="margin-left: 18%">
+      A minimal HTTP response decoupled from any framework. Constructors:
+      <b>HttpResponse::new(status,</b>body)<b>, HttpResponse::json(status,</b
+      >json_value)<b>.</b> Builder:
+      <b>.with_header(key, value) status:</b>http::StatusCode<b>, headers:</b
+      >Vec&lt;(String,<b>String)&gt;</b>, <b>body:</b>String<b>.</b>
+    </p>
+
+    <h2>
+      TRAITS
+      <a name="TRAITS"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em"><b>UserProvider</b></p>
+
+    <p style="margin-left: 18%">
+      async trait that must be implemented for user authentication. <br />
+      async fn authenticate(&amp;self, creds: &amp;Credentials) -&gt;
+      Result&lt;UserInfo, AuthError&gt; <br />
+      async fn get_user_by_id(&amp;self, user_id: &amp;str) -&gt;
+      Result&lt;Option&lt;UserInfo&gt;, AuthError&gt;
+    </p>
+
+    <p style="margin-left: 9%"><b>SessionStore</b></p>
+
+    <p style="margin-left: 18%">
+      async trait for session persistence. <br />
+      async fn save(&amp;self, id: &amp;SessionId, info: &amp;SessionInfo) -&gt;
+      Result&lt;(), AuthError&gt; <br />
+      async fn load(&amp;self, id: &amp;SessionId) -&gt;
+      Result&lt;Option&lt;SessionInfo&gt;, AuthError&gt; <br />
+      async fn delete(&amp;self, id: &amp;SessionId) -&gt; Result&lt;(),
+      AuthError&gt; <br />
+      async fn cleanup(&amp;self) -&gt; Result&lt;(), AuthError&gt;
+    </p>
+
+    <h2>
+      CONFIGURATION
+      <a name="CONFIGURATION"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>AuthConfig</b> can be created using defaults, the builder pattern, or
+      from environment.
+    </p>
+
+    <p align="center">
+      <img src="grohtml-132124-1.png" alt="Image grohtml-132124-1.png" />
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>AuthConfigBuilder</b> methods: .cookie_name(), .cookie_path(),
+      .cookie_domain(), .cookie_secure(), Finalize with
+      <b>.build() -&gt; Result&lt;AuthConfig, AuthError&gt;</b> which validates
+      lifetime &gt; 0 and cookie_name non-empty.
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>SameSite</b> enum variants: Strict, Lax (default), None.
+    </p>
+
+    <h2>
+      ENVIRONMENT
+      <a name="ENVIRONMENT"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>AuthConfig::from_env()</b> reads these optional variables (all have
+      defaults):
+      <b
+        ><br />
+        AUTH_COOKIE_NAME</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">(default &quot;sid&quot;)</p>
+
+    <p style="margin-left: 9%"><b>AUTH_COOKIE_PATH</b></p>
+
+    <p style="margin-left: 18%">(default &quot;/&quot;)</p>
+
+    <p style="margin-left: 9%"><b>AUTH_COOKIE_DOMAIN</b></p>
+
+    <p style="margin-left: 18%">(optional)</p>
+
+    <p style="margin-left: 9%"><b>AUTH_COOKIE_SECURE</b></p>
+
+    <p style="margin-left: 18%">
+      &quot;true&quot;/&quot;false&quot; (default &quot;true&quot;)
+    </p>
+
+    <p style="margin-left: 9%"><b>AUTH_COOKIE_HTTP_ONLY</b></p>
+
+    <p style="margin-left: 18%">
+      &quot;true&quot;/&quot;false&quot; (default &quot;true&quot;)
+    </p>
+
+    <p style="margin-left: 9%"><b>AUTH_COOKIE_SAME_SITE</b></p>
+
+    <p style="margin-left: 18%">
+      &quot;Strict&quot;/&quot;Lax&quot;/&quot;None&quot; (default
+      &quot;Lax&quot;)
+    </p>
+
+    <p style="margin-left: 9%"><b>AUTH_SESSION_LIFETIME</b></p>
+
+    <p style="margin-left: 18%">integer seconds (default 86400)</p>
+
+    <p style="margin-left: 9%"><b>AUTH_SESSION_IDLE_TIMEOUT</b></p>
+
+    <p style="margin-left: 18%">integer seconds (optional)</p>
+
+    <p style="margin-left: 9%"><b>AUTH_LOGIN_URL</b></p>
+
+    <p style="margin-left: 18%">optional URL string</p>
+
+    <p style="margin-left: 9%"><b>AUTH_LOGOUT_REDIRECT_URL</b></p>
+
+    <p style="margin-left: 18%">optional URL string</p>
+
+    <h2>
+      ERROR HANDLING
+      <a name="ERROR HANDLING"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>AuthError</b> enum variants:
+    </p>
+
+    <p style="margin-left: 18%"><b>Config(String)</b></p>
+
+    <p style="margin-left: 27%">Configuration error.</p>
+
+    <p style="margin-left: 18%"><b>InvalidCredentials</b></p>
+
+    <p style="margin-left: 27%">Bad username/password.</p>
+
+    <p style="margin-left: 18%"><b>AccountLocked { until: String }</b></p>
+
+    <p style="margin-left: 27%">Account locked.</p>
+
+    <p style="margin-left: 18%"><b>SessionExpired</b></p>
+
+    <p style="margin-left: 27%">Session expired.</p>
+
+    <p style="margin-left: 18%"><b>SessionNotFound</b></p>
+
+    <p style="margin-left: 27%">Session ID not found.</p>
+
+    <p style="margin-left: 18%"><b>Internal(String)</b></p>
+
+    <p style="margin-left: 27%">Internal error.</p>
+
+    <p style="margin-left: 18%"><b>Serialization(String)</b></p>
+
+    <p style="margin-left: 27%">Serialization error.</p>
+
+    <p style="margin-left: 9%">
+      Methods:
+      <b
+        ><br />
+        .status_code() -&gt; http::StatusCode</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">Maps variant to HTTP status (500, 401, 403).</p>
+
+    <p style="margin-left: 9%">
+      <b>.to_json_body() -&gt; serde_json::Value</b>
+    </p>
+
+    <p style="margin-left: 18%">
+      Returns {&quot;error&quot;:&quot;message&quot;}.
+    </p>
+
+    <h2>
+      SESSION STORE
+      <a name="SESSION STORE"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>MemorySessionStore</b> in-memory implementation for
+      development/testing. <br />
+      let store = MemorySessionStore::new(); <br />
+      Implements <b>SessionStore</b> with async RwLock&lt;HashMap&gt;.
+      <b>cleanup()</b> removes sessions where expires_at &lt;= now.
+    </p>
+
+    <h2>
+      AUTHMANAGER API
+      <a name="AUTHMANAGER API"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b
+        >AuthManager::new(config, user_provider, session_store) <br />
+        login(credentials) -&gt; Result&lt;HttpResponse, AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">
+      Validates non-empty credentials, calls user_provider.authenticate(),
+      creates session, returns 200 with Set-Cookie and JSON body.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b
+        >logout(session_id: Option&lt;&amp;SessionId&gt;) -&gt;
+        Result&lt;HttpResponse,
+        <br />
+        AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">
+      Destroys session (if provided), returns clearance cookie and 200 or
+      redirect.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b
+        >validate_session(session_id) -&gt; Result&lt;SessionInfo,
+        AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">
+      Checks expiry and idle timeout, deletes expired sessions.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b
+        >create_session(user_info) -&gt; Result&lt;(SessionId, SessionInfo),
+        <br />
+        AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">
+      Directly creates a session, returns id and info.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b>destroy_session(session_id) -&gt; Result&lt;(), AuthError&gt;</b>
+    </p>
+
+    <p style="margin-left: 18%">Deletes session from store.</p>
+
+    <h2>
+      COOKIE FUNCTIONS (api::auth::cookies)
+      <a name="COOKIE FUNCTIONS (api::auth::cookies)"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>create_session_cookie(session_id, config) -&gt; Cookie</b>
+    </p>
+
+    <p style="margin-left: 18%">
+      Builds cookie with name, path, domain, secure, httpOnly, SameSite,
+      max_age.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b
+        >parse_session_id_from_cookie(cookie_header, config) -&gt; <br />
+        Option&lt;SessionId&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">
+      Extracts session ID from Cookie header string.
+    </p>
+
+    <p style="margin-left: 9%">
+      <b>create_removal_cookie(config) -&gt; Cookie</b>
+    </p>
+
+    <p style="margin-left: 18%">
+      Returns empty cookie with max_age=0 to clear session.
+    </p>
+
+    <h2>
+      SESSION FUNCTIONS (api::auth::session)
+      <a name="SESSION FUNCTIONS (api::auth::session)"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>generate_session_id() -&gt; SessionId</b>
+    </p>
+
+    <p style="margin-left: 18%">32-character alphanumeric random string.</p>
+
+    <p style="margin-left: 9%">
+      <b
+        >create_session(store, config, user_info) -&gt; Result&lt;(SessionId,
+        <br />
+        SessionInfo), AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">Generates ID, sets timestamps, saves.</p>
+
+    <p style="margin-left: 9%">
+      <b
+        >validate_session(store, config, id) -&gt; Result&lt;SessionInfo,
+        AuthError&gt;</b
+      >
+    </p>
+
+    <p style="margin-left: 18%">Validates and auto-deletes expired sessions.</p>
+
+    <p style="margin-left: 9%">
+      <b>destroy_session(store, id) -&gt; Result&lt;(), AuthError&gt;</b>
+    </p>
+
+    <p style="margin-left: 18%">Deletes session.</p>
+
+    <h2>
+      EXAMPLE
+      <a name="EXAMPLE"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      A minimal actix-web integration: <br />
+      use librjss::api::AuthManager; <br />
+      use librjss::handler::config::AuthConfig; <br />
+      use librjss::handler::session_store::MemorySessionStore;
+      <br />
+      use librjss::handler::types::{Credentials, UserProvider, UserInfo,
+      AuthError}; <br />
+      use std::sync::Arc;
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      struct MyProvider; <br />
+      #[async_trait] <br />
+      impl UserProvider for MyProvider { <br />
+      async fn authenticate(&amp;self, c: &amp;Credentials) -&gt;
+      Result&lt;UserInfo, AuthError&gt; { <br />
+      if c.username == &quot;admin&quot; &amp;&amp; c.password ==
+      &quot;pass&quot; { <br />
+      Ok(UserInfo { user_id: &quot;admin&quot;.into(), extra:
+      serde_json::json!({}) }) <br />
+      } else { <br />
+      Err(AuthError::InvalidCredentials) <br />
+      } <br />
+      } <br />
+      async fn get_user_by_id(&amp;self, id: &amp;str) -&gt;
+      Result&lt;Option&lt;UserInfo&gt;, AuthError&gt; { <br />
+      Ok(None) <br />
+      } <br />
+      }
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      let config = AuthConfig::builder().cookie_name(&quot;sid&quot;.into())
+      <br />
+
+      .session_lifetime(time::Duration::hours(2)).build().unwrap();
+      <br />
+      let manager = AuthManager::new(config, Arc::new(MyProvider),
+      Arc::new(MemorySessionStore::new()));
+    </p>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      // In an actix handler: <br />
+      async fn login(state: web::Data&lt;AppState&gt;, body:
+      web::Json&lt;LoginReq&gt;) -&gt; HttpResponse { <br />
+      let resp = state.manager.login(Credentials { username: body.user.clone(),
+      password: body.pass.clone() }).await;
+      <br />
+      // convert librjss::HttpResponse to actix_web::HttpResponse ... <br />
+      }
+    </p>
+
+    <h2>
+      FILES
+      <a name="FILES"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em"><i>Cargo.toml</i></p>
+
+    <p style="margin-left: 18%">
+      Workspace manifest defining members &quot;librjss&quot; and
+      &quot;app&quot;.
+    </p>
+
+    <p style="margin-left: 9%"><i>librjss/src/</i></p>
+
+    <p style="margin-left: 18%">Library source.</p>
+
+    <table
+      width="100%"
+      border="0"
+      rules="none"
+      frame="void"
+      cellspacing="0"
+      cellpadding="0"
+    >
+      <tr valign="top" align="left">
+        <td width="9%"></td>
+        <td width="5%">
+          <p><i>app/</i></p>
+        </td>
+        <td width="4%"></td>
+        <td width="38%">
+          <p>Example authentication server.</p>
+        </td>
+        <td width="44%"></td>
+      </tr>
+    </table>
+
+    <h2>
+      AUTHOR
+      <a name="AUTHOR"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      mroczect &lt;mroczect@proton.me&gt;.
+    </p>
+
+    <h2>
+      LICENSE
+      <a name="LICENSE"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">MIT License.</p>
+
+    <h2>
+      SEE ALSO
+      <a name="SEE ALSO"></a>
+    </h2>
+
+    <p style="margin-left: 9%; margin-top: 1em">
+      <b>cargo</b>(1), <b>rustc</b>(1), The librjss README.txt distributed with
+      the source.
+    </p>
+    <hr />
+  </body>
+</html>
