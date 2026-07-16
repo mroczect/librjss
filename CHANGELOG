@@ -1,3 +1,135 @@
+commit 9b45a8049b3046db09bb69a31e45aa49a48b68e4
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    test: add shared library loading and basic FFI test
+
+commit 0c09e83ee1da3bc9d915f3f61217aab2d72f7949
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    test: add C test for shared library FFI
+
+commit b20e52a060b16577b29a0eac3d9cd0a14d2526ca
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    ci: add workflow for C integration tests
+
+commit 19c130759ce934f34f2df198f39be08a8298927d
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    chore(librjss): bump version to 0.3.0 and add libloading
+
+commit 7b59826e70901fef5610f5dcc9de217d95a34824
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    docs: bump manpage version to 0.3.0
+
+commit 62708aa360053802aea58e55f5f4fca2cedffd14
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    chore(app): bump version to 0.3.0
+
+commit 3faefc73b436bfde0fdc99bb1029564487e41e0b
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    docs: bump version to 0.3.0
+
+commit 065c8925df7dfcf6e59c94f8ffa0e779198ec562
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    chore: bump versions to 0.3.0 and add libloading in lockfile
+
+commit 2f72bfe0d89c1f40d2427b7b25ba098f109a3851
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    ci: fix checksum heading in release-server body
+
+commit e791884be70f62008091e6bddb7f04272566ba3c
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 02:04:06 2026 +0700
+
+    ci: remove markdown code fence from release-lib checksums
+
+commit 12e494743e6d52fab8c648e632888aacdfadcb63
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:50:16 2026 +0700
+
+    docs: bump manpage version to 0.2.0
+
+commit 1ba7cea07cc474bd572dd8b5deed36052817465b
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:50:16 2026 +0700
+
+    chore(app): bump version to 0.2.0
+
+commit e3bde61c7c52f3801a30291b120f93a6e6d848f6
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:50:16 2026 +0700
+
+    docs: bump version to 0.2.0 in README
+
+commit a2e9702ca280610936953276e57644970f74d27a
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:50:16 2026 +0700
+
+    chore: bump versions to 0.2.0 in lockfile
+
+commit 4a9976fe52d865b353b4e23a9f138a2a4438bdd7
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    feat(librjss): add C FFI bindings for auth and types
+
+commit d55a73fbb21d1053a3c318b4ded0239b0f9ec44f
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    ci: add release workflow for auth-server binary
+
+commit 77582da3a5974b1e27e835d16c10417184f9f964
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    ci: add release workflow for librjss libraries
+
+commit ba16f1b6a13b274499b3536163bf4ca6fef94e41
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    feat(librjss): add FFI module export
+
+commit e5b6417110933df1bf6ea5c28f5b0b6eb352ce5f
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    build(librjss): add cdylib and staticlib crate types
+
+commit 3a992960d2f90dffd979df2a685bdad5a83e4ba4
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:49:58 2026 +0700
+
+    ci: merge build and test across multiple OS with matrix
+
+commit 14f396ae22c7e6359b7a43ebd880b6869d44f877
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:28:28 2026 +0700
+
+    ci: add GitHub Actions workflow for build, test, audit
+
+commit 3ebe7b92ff02e4fe3460db2a716a86d44f59f97f
+Author: mroczect <mroczect@proton.me>
+Date:   Fri Jul 17 01:23:39 2026 +0700
+
+    docs: Add Changelog
+
 commit 537932f5927ab6482363e915769b745326411731
 Author: mroczect <mroczect@proton.me>
 Date:   Fri Jul 17 01:23:05 2026 +0700
