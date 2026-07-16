@@ -16,7 +16,7 @@ pub fn create_session_cookie(session_id: &SessionId, config: &AuthConfig) -> Coo
             crate::handler::config::SameSite::None => SameSite::None,
         })
         .max_age(max_age)
-        .finish();
+        .build();
 
     if let Some(ref domain) = config.cookie_domain {
         cookie.set_domain(domain.clone());
@@ -48,5 +48,5 @@ pub fn create_removal_cookie(config: &AuthConfig) -> Cookie<'static> {
             crate::handler::config::SameSite::None => SameSite::None,
         })
         .max_age(Duration::seconds(0))
-        .finish()
+        .build()
 }
