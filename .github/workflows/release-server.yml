@@ -97,8 +97,8 @@ jobs:
             - macOS (Intel x86_64, Apple Silicon)
             - Windows (x86_64 MSVC)
 
-            ```sha256sum
+            ### SHA256 Checksums
+            
             ${{ steps.checksum.outputs.checksums }}
-            ```
-
+  
           token: ${{ secrets.GITHUB_TOKEN }}
