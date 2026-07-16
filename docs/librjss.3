@@ -1,0 +1,345 @@
+.\" Manpage for librjss API
+.\" Contact mroczect@proton.me to correct errors or typos.
+.TH LIBRJSS 3 "17 Jul 2026" "0.1.0" "librjss API Manual"
+.SH NAME
+librjss \- Rust library for cookie-based session authentication
+.SH SYNOPSIS
+.nf
+Cargo.toml:
+    [dependencies]
+    librjss = { git = "https://github.com/mroczect/librjss.git" }
+
+Rust source:
+    use librjss::api::AuthManager;
+    use librjss::handler::config::AuthConfig;
+    use librjss::handler::session_store::MemorySessionStore;
+    use librjss::handler::types::{Credentials, UserProvider, SessionStore};
+    use std::sync::Arc;
+.fi
+.SH DESCRIPTION
+.B librjss
+is a protocol-agnostic, framework-agnostic Rust library that provides
+building blocks for cookie-based session authentication. It does not
+depend on any specific web framework. It defines traits for user
+lookup and session storage and offers a ready-to-use
+.B AuthManager
+that orchestrates the authentication lifecycle.
+
+The library is structured into two main modules:
+.B api
+(high-level manager and cookie helpers) and
+.B handler
+(lower-level types, configuration, error types, session store
+implementation, and environment loading).
+
+.SH MODULES
+.SS api
+.B api::AuthManager
+is the central coordinator. It is constructed with an
+.B AuthConfig ,
+a
+.B UserProvider ,
+and a
+.B SessionStore .
+It exposes methods to login, logout, validate, create, and destroy sessions.
+.B api::auth::cookies
+contains functions to create, parse, and delete session cookies.
+.B api::auth::session
+contains low-level session creation, validation, and destruction logic.
+.SS handler
+.B handler::config
+provides
+.B AuthConfig
+(defaults, builder with validation, SameSite enum).
+.B handler::env
+implements
+.B AuthConfig::from_env()
+to read configuration from environment variables.
+.B handler::error
+defines the
+.B AuthError
+enum with status code mapping and JSON body generation.
+.B handler::session_store
+contains a
+.B MemorySessionStore ,
+an in-memory session store implementation suitable for development and testing.
+.B handler::types
+contains all core data types and traits:
+.BR SessionId ,
+.BR Credentials ,
+.BR UserInfo ,
+.BR SessionInfo ,
+.BR HttpResponse ,
+.BR UserProvider ,
+and
+.BR SessionStore .
+
+.SH DATA TYPES
+.TP
+.B SessionId
+A newtype wrapper over String representing a session identifier.
+Construct with
+.BR SessionId::new(id) .
+Use
+.B .as_str()
+to get a &str. Implements Display, Eq, Hash, Serialize, Deserialize.
+.TP
+.B Credentials
+Holds
+.B username: String
+and
+.B password: String
+used for login.
+.TP
+.B UserInfo
+Returned from
+.BR UserProvider::authenticate() .
+Fields:
+.BR user_id: String ,
+.B extra: serde_json::Value
+(arbitrary claims).
+.TP
+.B SessionInfo
+Session record stored in the session store. Fields:
+.BR user_id: String ,
+.B data: serde_json::Value ,
+.BR issued_at: OffsetDateTime ,
+.BR expires_at: OffsetDateTime ,
+.BR idle_deadline: Option<OffsetDateTime> .
+.TP
+.B HttpResponse
+A minimal HTTP response decoupled from any framework.
+Constructors:
+.BR HttpResponse::new(status, body) ,
+.BR HttpResponse::json(status, json_value) .
+Builder:
+.B .with_header(key, value)
+. Fields:
+.BR status: http::StatusCode ,
+.BR headers: Vec<(String, String)> ,
+.BR body: String .
+.SH TRAITS
+.TP
+.B UserProvider
+async trait that must be implemented for user authentication.
+.nf
+    async fn authenticate(&self, creds: &Credentials) -> Result<UserInfo, AuthError>
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<UserInfo>, AuthError>
+.fi
+.TP
+.B SessionStore
+async trait for session persistence.
+.nf
+    async fn save(&self, id: &SessionId, info: &SessionInfo) -> Result<(), AuthError>
+    async fn load(&self, id: &SessionId) -> Result<Option<SessionInfo>, AuthError>
+    async fn delete(&self, id: &SessionId) -> Result<(), AuthError>
+    async fn cleanup(&self) -> Result<(), AuthError>
+.fi
+.SH CONFIGURATION
+.B AuthConfig
+can be created using defaults, the builder pattern, or from environment.
+.TS
+tab(|);
+l l.
+Default values:
+cookie_name|"sid"
+cookie_path|"/"
+cookie_domain|None
+cookie_secure|true
+cookie_http_only|true
+cookie_same_site|SameSite::Lax
+session_lifetime|24 hours
+session_idle_timeout|None
+login_url|None
+logout_redirect_url|None
+.TE
+
+.B AuthConfigBuilder
+methods: .cookie_name(), .cookie_path(), .cookie_domain(), .cookie_secure(),
+.cookie_http_only(), .cookie_same_site(), .session_lifetime(),
+.session_idle_timeout(), .login_url(), .logout_redirect_url().
+Finalize with
+.B .build() -> Result<AuthConfig, AuthError>
+which validates lifetime > 0 and cookie_name non-empty.
+
+.B SameSite
+enum variants: Strict, Lax (default), None.
+
+.SH ENVIRONMENT
+.B AuthConfig::from_env()
+reads these optional variables (all have defaults):
+.TP
+.B AUTH_COOKIE_NAME
+(default "sid")
+.TP
+.B AUTH_COOKIE_PATH
+(default "/")
+.TP
+.B AUTH_COOKIE_DOMAIN
+(optional)
+.TP
+.B AUTH_COOKIE_SECURE
+"true"/"false" (default "true")
+.TP
+.B AUTH_COOKIE_HTTP_ONLY
+"true"/"false" (default "true")
+.TP
+.B AUTH_COOKIE_SAME_SITE
+"Strict"/"Lax"/"None" (default "Lax")
+.TP
+.B AUTH_SESSION_LIFETIME
+integer seconds (default 86400)
+.TP
+.B AUTH_SESSION_IDLE_TIMEOUT
+integer seconds (optional)
+.TP
+.B AUTH_LOGIN_URL
+optional URL string
+.TP
+.B AUTH_LOGOUT_REDIRECT_URL
+optional URL string
+
+.SH ERROR HANDLING
+.B AuthError
+enum variants:
+.RS
+.TP
+.B Config(String)
+Configuration error.
+.TP
+.B InvalidCredentials
+Bad username/password.
+.TP
+.B AccountLocked { until: String }
+Account locked.
+.TP
+.B SessionExpired
+Session expired.
+.TP
+.B SessionNotFound
+Session ID not found.
+.TP
+.B Internal(String)
+Internal error.
+.TP
+.B Serialization(String)
+Serialization error.
+.RE
+Methods:
+.TP
+.B .status_code() -> http::StatusCode
+Maps variant to HTTP status (500, 401, 403).
+.TP
+.B .to_json_body() -> serde_json::Value
+Returns {"error":"message"}.
+
+.SH SESSION STORE
+.B MemorySessionStore
+in-memory implementation for development/testing.
+.nf
+    let store = MemorySessionStore::new();
+.fi
+Implements
+.B SessionStore
+with async RwLock<HashMap>.
+.B cleanup()
+removes sessions where expires_at <= now.
+
+.SH AUTHMANAGER API
+.B AuthManager::new(config, user_provider, session_store)
+.TP
+.B login(credentials) -> Result<HttpResponse, AuthError>
+Validates non-empty credentials, calls user_provider.authenticate(),
+creates session, returns 200 with Set-Cookie and JSON body.
+.TP
+.B logout(session_id: Option<&SessionId>) -> Result<HttpResponse, AuthError>
+Destroys session (if provided), returns clearance cookie and 200 or redirect.
+.TP
+.B validate_session(session_id) -> Result<SessionInfo, AuthError>
+Checks expiry and idle timeout, deletes expired sessions.
+.TP
+.B create_session(user_info) -> Result<(SessionId, SessionInfo), AuthError>
+Directly creates a session, returns id and info.
+.TP
+.B destroy_session(session_id) -> Result<(), AuthError>
+Deletes session from store.
+
+.SH COOKIE FUNCTIONS (api::auth::cookies)
+.TP
+.B create_session_cookie(session_id, config) -> Cookie
+Builds cookie with name, path, domain, secure, httpOnly, SameSite, max_age.
+.TP
+.B parse_session_id_from_cookie(cookie_header, config) -> Option<SessionId>
+Extracts session ID from Cookie header string.
+.TP
+.B create_removal_cookie(config) -> Cookie
+Returns empty cookie with max_age=0 to clear session.
+
+.SH SESSION FUNCTIONS (api::auth::session)
+.TP
+.B generate_session_id() -> SessionId
+32-character alphanumeric random string.
+.TP
+.B create_session(store, config, user_info) -> Result<(SessionId, SessionInfo), AuthError>
+Generates ID, sets timestamps, saves.
+.TP
+.B validate_session(store, config, id) -> Result<SessionInfo, AuthError>
+Validates and auto-deletes expired sessions.
+.TP
+.B destroy_session(store, id) -> Result<(), AuthError>
+Deletes session.
+
+.SH EXAMPLE
+A minimal actix-web integration:
+.nf
+use librjss::api::AuthManager;
+use librjss::handler::config::AuthConfig;
+use librjss::handler::session_store::MemorySessionStore;
+use librjss::handler::types::{Credentials, UserProvider, UserInfo, AuthError};
+use std::sync::Arc;
+
+struct MyProvider;
+#[async_trait]
+impl UserProvider for MyProvider {
+    async fn authenticate(&self, c: &Credentials) -> Result<UserInfo, AuthError> {
+        if c.username == "admin" && c.password == "pass" {
+            Ok(UserInfo { user_id: "admin".into(), extra: serde_json::json!({}) })
+        } else {
+            Err(AuthError::InvalidCredentials)
+        }
+    }
+    async fn get_user_by_id(&self, id: &str) -> Result<Option<UserInfo>, AuthError> {
+        Ok(None)
+    }
+}
+
+let config = AuthConfig::builder().cookie_name("sid".into())
+    .session_lifetime(time::Duration::hours(2)).build().unwrap();
+let manager = AuthManager::new(config, Arc::new(MyProvider), Arc::new(MemorySessionStore::new()));
+
+// In an actix handler:
+async fn login(state: web::Data<AppState>, body: web::Json<LoginReq>) -> HttpResponse {
+    let resp = state.manager.login(Credentials { username: body.user.clone(), password: body.pass.clone() }).await;
+    // convert librjss::HttpResponse to actix_web::HttpResponse ...
+}
+.fi
+
+.SH FILES
+.TP
+.I Cargo.toml
+Workspace manifest defining members "librjss" and "app".
+.TP
+.I librjss/src/
+Library source.
+.TP
+.I app/
+Example authentication server.
+
+.SH AUTHOR
+mroczect <mroczect@proton.me>.
+.SH LICENSE
+MIT License.
+.SH SEE ALSO
+.BR cargo (1),
+.BR rustc (1),
+The librjss README.txt distributed with the source.
