@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "auth-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -978,7 +978,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "librjss"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actix-cors",
  "actix-web",
