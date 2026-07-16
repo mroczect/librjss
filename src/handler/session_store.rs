@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::collections::HashMap;
-use tokio::sync::RwLock;
 use time::OffsetDateTime;
+use tokio::sync::RwLock;
 
 use crate::error::AuthError;
 use crate::types::{SessionId, SessionInfo, SessionStore};
@@ -36,7 +36,10 @@ impl SessionStore for MemorySessionStore {
 
     async fn cleanup(&self) -> Result<(), AuthError> {
         let now = OffsetDateTime::now_utc();
-        self.sessions.write().await.retain(|_, info| info.expires_at > now);
+        self.sessions
+            .write()
+            .await
+            .retain(|_, info| info.expires_at > now);
         Ok(())
     }
 }
