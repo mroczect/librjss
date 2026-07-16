@@ -1,6 +1,6 @@
 [package]
 name = "librjss"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 
 [lib]
@@ -24,3 +24,4 @@ actix-web = "4"
 dotenv = "0.15"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 actix-cors = "0.7"
+libloading = "0.8"
