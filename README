@@ -1,166 +1,448 @@
-librjss
+-  - - - - - - - - - - - - - - - - - - - -
+            	librjss
+-  - - - - - - - - - - - - - - - - - - - -
 
-  Robust, zero-framework client library for Juragan Subsystem (JSS)
-  authentication and API access. Provides cookie-based session management
-  with automatic CSRF token extraction, retry logic, and full diagnostic
-  tracing.
+Robust, zero-framework client library for Juragan Subsystem (JSS)
+authentication and API access. Provides cookie-based session management
+with automatic CSRF token extraction, retry logic, and full diagnostic
+tracing.
 
-  Version: 1.2.0   License: MIT   Status: Early development
+Version: 1.2.0   License: MIT   Status: Early development
 
-----------------------------------------------------------------
-Installation
-----------------------------------------------------------------
+-  - - - - - - - - - - - - - - - - - - - -
+        	Table of Contents
+-  - - - - - - - - - - - - - - - - - - - -
 
-  [dependencies]
-  librjss = { git = "https://github.com/mroczect/librjss.git" }
+ 1. Installation
+ 2. Quick start – CLI binary
+ 3. Project layout
+ 4. Core concepts
+ 5. New in version 1.2.0
+ 6. Usage examples
+ 7. Environment variables (CLI)
+ 8. Mock server for development
+ 9. Testing
+10. CI pipeline
+11. License
 
-----------------------------------------------------------------
-Quick start – CLI binary
-----------------------------------------------------------------
+-  - - - - - - - - - - - - - - - - - - - -
+1. Installation
+-  - - - - - - - - - - - - - - - - - - - -
 
-  export JSS_BASE_URL=https://app.juragansejati.biz.id
-  export JSS_EMAIL=user@example.com
-  export JSS_PASSWORD=password
-  export JSS_INSECURE_SSL=false          # set true only for dev
-  cargo run --bin cli_auth
+Add the dependency to your Cargo.toml:
 
-  The CLI authenticates, prints session info, and performs a test
-  request to /api/method/frappe.auth.get_logged_user.
+    [dependencies]
+    librjss = { git = "https://github.com/mroczect/librjss.git" }
 
-----------------------------------------------------------------
-Project layout
-----------------------------------------------------------------
+Or use a specific version / tag as needed.
 
-  src/
-    api/auth/          AuthEndpoints trait (URL builders)
-    bin/cli_auth.rs    CLI login tool
-    client/
-      auth/            login, logout, session, token, app parser,
-                       http helpers
-      methods/         authenticated_get, post, put, delete
-    handler/
-      config/          AuthMode, ClientConfig, validation
-      error.rs         JssError enum
-      types/           FrappeBoot, SessionInfo, login/user info
+-  - - - - - - - - - - - - - - - - - - - -
+2. Quick start – CLI binary
+-  - - - - - - - - - - - - - - - - - - - -
 
-  examples/
-    jss_mock_server.rs    Full offline mock of JSS server for dev
+A minimal CLI binary is included (src/bin/cli_auth.rs). Build and run
+with environment variables:
 
-  tests/
-    api_auth_tests.rs     URL builder tests
-    client_tests.rs       Integration tests against mock server
-    env_tests.rs          Config validation tests
-    error_tests.rs        Error type tests
-    types_tests.rs        Deserialisation tests
+    export JSS_BASE_URL=https://app.juragansejati.biz.id
+    export JSS_EMAIL=user@example.com
+    export JSS_PASSWORD=password
+    export JSS_INSECURE_SSL=false          # set true only for dev
 
-  .github/workflows/ci.yml   CI pipeline (fmt, clippy, test, release)
+    cargo run --bin cli_auth
 
-----------------------------------------------------------------
-Core concepts
-----------------------------------------------------------------
+The CLI authenticates, prints session info, and performs a test request
+to /api/method/frappe.auth.get_logged_user.
 
-  RjssClient
-    Central client holding configuration, HTTP client, session, and
-    credentials. Public API:
-      new(config) -> Result<Self, JssError>
-      authenticate() -> Result<(), JssError>
-      logout() -> Result<(), JssError>
-      ensure_session() -> Result<(), JssError>
-      session_info() -> Option<&SessionInfo>
-      authenticated_get(path) -> Result<String, JssError>
-      authenticated_post(path, json) -> Result<String, JssError>
-      authenticated_put(path, json) -> Result<String, JssError>
-      authenticated_delete(path) -> Result<String, JssError>
+For token authentication, set JSS_TOKEN_API_KEY and JSS_TOKEN_API_SECRET
+instead of email/password.
 
-  AuthMode (enum)
-    Session { email: SecretString, password: SecretString }
-    Token   { api_key: String, api_secret: SecretString }
+-  - - - - - - - - - - - - - - - - - - - -
+3. Project layout
+-  - - - - - - - - - - - - - - - - - - - -
 
-  ClientConfig
-    base_url: Url
-    auth_mode: AuthMode
-    expected_sitename: Option<String>
-    required_roles: Vec<String>
-    timeout_secs: u64           (default 30)
-    max_retries: u32            (default 3)
-    user_agent: String
-    insecure_ssl: bool          (default false)
-    Method: validate() -> Result<(), JssError>
+src/
+  api/
+    auth/
+      endpoints.rs         AuthEndpoints trait (URL builders)
+      mod.rs
+    mod.rs
 
-  JssError (enum)
-    Config(String)
-    Validation(String)
-    Network(reqwest::Error)
-    Http { status, body }
-    Auth(String)
-    Csrf(String)
-    Permission(String)
-    SitenameMismatch { expected, actual }
-    NotAuthenticated
-    RateLimited
-    Parse(String)
-    Expired
-    Cancelled
+  bin/
+    cli_auth.rs            CLI login tool
 
-  SessionInfo
-    sid: SecretString
-    csrf_token: SecretString
-    full_name: Option<String>
-    sitename: String
-    roles: Vec<String>
+  client/
+    auth/
+      app_parser.rs         Fetch /app, extract CSRF and frappe.boot
+      http_helpers.rs       Auth header application, URL joining, backoff
+      login.rs              Session login logic
+      logout.rs             Session logout
+      session.rs            Session maintenance (ensure_session)
+      token.rs              Token‑mode session setup
+      mod.rs
+    methods/
+      delete.rs             authenticated_delete
+      get.rs                authenticated_get
+      post.rs               authenticated_post
+      put.rs                authenticated_put
+      mod.rs
+    file.rs                 Upload & download files (new)
+    report.rs               Report execution builder (new)
+    resource.rs             Doctype CRUD & listing builder (new)
+    mod.rs                  RjssClient struct and core methods
 
-  FrappeBoot
-    Deserialised from the frappe.boot JavaScript object found in the
-    /app dashboard page. Contains user, sitename, csrf_token, and
-    sysdefaults.
+  handler/
+    config/
+      auth_mode.rs          AuthMode enum
+      client_config.rs      ClientConfig struct
+      validation.rs         Config validation
+      mod.rs
+    env.rs                  Re‑exports for convenience
+    error.rs                JssError enum (extended in 1.2.0)
+    types/
+      boot.rs               FrappeBoot, BootUser, permissions, reports
+      login.rs              LoginApiResponse, LoginApiMessage
+      session.rs            SessionInfo
+      user_info.rs          UserInfo, UserInfoMessage
+      mod.rs
+    mod.rs
 
-----------------------------------------------------------------
-Environment variables (CLI)
-----------------------------------------------------------------
+  lib.rs                    Crate root, public re‑exports
 
-  JSS_BASE_URL            Required.  Base URL of the JSS instance.
-  JSS_EMAIL               Required for session auth.
-  JSS_PASSWORD            Required for session auth.
-  JSS_TOKEN_API_KEY       Required for token auth (if not using session).
-  JSS_TOKEN_API_SECRET    Required for token auth.
-  JSS_EXPECTED_SITENAME   Optional.  If set, login verifies the sitename
-                          in frappe.boot matches.
-  JSS_REQUIRED_ROLES      Optional.  Comma-separated roles that the user
-                          must possess.
-  JSS_TIMEOUT_SECS        Optional.  Request timeout in seconds (default 30).
-  JSS_MAX_RETRIES         Optional.  Maximum retry attempts (default 3).
-  JSS_USER_AGENT          Optional.  Custom User-Agent header.
-  JSS_INSECURE_SSL        Optional.  Accept invalid TLS certificates (true/false).
+examples/
+  jss_mock_server.rs        Full offline mock of a JSS server
 
-----------------------------------------------------------------
-Mock server for development
-----------------------------------------------------------------
+tests/
+  api_auth_tests.rs         URL builder tests
+  client_tests.rs           Integration tests against mock server
+  env_tests.rs              Config validation tests
+  error_tests.rs            Error type tests
+  file_tests.rs             File handling tests
+  report_tests.rs           Report execution tests
+  resource_tests.rs         Resource CRUD tests
+  types_tests.rs            Deserialisation tests
 
-  Start the server:
+.github/
+  workflows/
+    ci.yml                  CI pipeline
+
+-  - - - - - - - - - - - - - - - - - - - -
+4. Core concepts
+-  - - - - - - - - - - - - - - - - - - - -
+
+RjssClient
+----------
+Central client holding configuration, HTTP client, session, and
+credentials. Public API (full list):
+
+  new(config) -> Result<Self, JssError>
+  authenticate() -> Result<(), JssError>
+  logout() -> Result<(), JssError>
+  ensure_session() -> Result<(), JssError>
+  session_info() -> Option<&SessionInfo>
+  boot() -> Option<&FrappeBoot>          // new
+  base_url() -> &Url
+  trace_id() -> &str
+  authenticated_get(path) -> Result<String, JssError>
+  authenticated_post(path, json) -> Result<String, JssError>
+  authenticated_put(path, json) -> Result<String, JssError>
+  authenticated_delete(path) -> Result<String, JssError>
+
+  // File operations (new)
+  upload_file(file_name, file_content, doctype, docname, fieldname)
+      -> Result<String, JssError>
+  download_file(file_url) -> Result<Vec<u8>, JssError>
+  download_file_to_path(file_url, save_path) -> Result<(), JssError>
+
+  // Report builder (new)
+  report(name) -> ReportBuilder
+
+  // Doctype/resource builder (new)
+  doctype(name) -> ResourceBuilder
+  get_doc(doctype, name) -> Result<String, JssError>
+  create_doc(doctype, &data) -> Result<String, JssError>
+  update_doc(doctype, name, &data) -> Result<String, JssError>
+  delete_doc(doctype, name) -> Result<String, JssError>
+  call_method(method, args) -> Result<String, JssError>
+
+AuthMode (enum)
+-  - - - - - - - - - - - - - - - - - - - --
+  Session { email: SecretString, password: SecretString }
+  Token   { api_key: String, api_secret: SecretString }
+
+ClientConfig
+------------
+  base_url: Url
+  auth_mode: AuthMode
+  expected_sitename: Option<String>
+  required_roles: Vec<String>
+  timeout_secs: u64           (default 30)
+  max_retries: u32            (default 3)
+  user_agent: String
+  insecure_ssl: bool          (default false)
+  Method: validate() -> Result<(), JssError>
+
+JssError (enum) – version 1.2.0 extended
+-  - - - - - - - - - - - - - - - - - - - ------------
+  Config(String)
+  Validation(String)
+  Network(reqwest::Error)
+  Http { status, body }
+  ApiError { exc_type, message, status }      // new
+  Auth(String)
+  Csrf(String)
+  Permission(String)
+  SitenameMismatch { expected, actual }
+  NotAuthenticated
+  RateLimited { retry_after: Option<u64> }    // changed
+  Parse(String)
+  Expired
+  Cancelled
+  FileOperation(String)                       // new
+  Internal(String)                            // new
+
+New method: from_api_response(status, body) – parses Frappe JSON
+errors; status_code() maps any variant to an HTTP status.
+
+SessionInfo
+-----------
+  sid: SecretString
+  csrf_token: SecretString
+  full_name: Option<String>
+  sitename: String
+  roles: Vec<String>
+
+FrappeBoot (extended)
+-  - - - - - - - - - - - - - - - - - - - --------
+Deserialised from the /app dashboard. Now includes:
+
+  user: BootUser (with name, email, full_name, roles, user_type,
+        permissions, and can_select/can_create/can_write/can_read/
+        can_submit/can_cancel/can_delete/can_get_report,
+        all_reports)
+  sitename, csrf_token, sysdefaults
+  app_logo_url, home_page
+  allow_modules
+  can_select, can_create, can_write, can_read, can_submit,
+  can_cancel, can_delete, can_get_report (global)
+  all_reports: HashMap<String, ReportMeta>
+  module_wise_workspaces
+  dashboards: Vec<DashboardMeta>
+  single_types, calendars, treeviews
+  module_app, app_data
+
+BootUser also contains the same permission lists and all_reports.
+
+ReportMeta, DashboardMeta, AppData, SysDefaults are new supporting
+structs.
+
+-  - - - - - - - - - - - - - - - - - - - -
+5. New in version 1.2.0
+-  - - - - - - - - - - - - - - - - - - - -
+
+File Handling
+  - upload_file: multipart upload to /api/method/upload_file.
+  - download_file: download raw bytes from a file URL.
+  - download_file_to_path: save directly to disk.
+
+Report Execution
+  - client.report("Report Name") returns a ReportBuilder.
+  - add_filter("field", "value") for filtering.
+  - run_raw() -> JSON string, run::<T>() -> deserialized.
+
+Doctype/Resource CRUD
+  - client.doctype("ToDo") returns a ResourceBuilder with filter(),
+    fields(), order_by(), limit(), limit_start().
+  - execute_raw(), execute::<T>() for a single page.
+  - all::<T>() auto‑paginates and collects every record.
+  - Direct methods: get_doc, create_doc, update_doc, delete_doc.
+  - call_method: call any whitelisted Frappe server method.
+
+Boot Data Exposure
+  - After authentication, FrappeBoot is stored and accessible via
+    client.boot().
+  - All permission vectors and reports are now available.
+
+Enhanced Error Model
+  - ApiError variant captures Frappe’s exc_type and exc message.
+  - RateLimited now carries optional Retry-After duration.
+  - New FileOperation and Internal variants.
+  - from_api_response() and status_code() helper methods.
+
+Better Retry & Rate Limit Handling
+  - All methods now read response body on server errors.
+  - Login extracts Retry-After header.
+  - Internal helpers extract_retry_after and classify_response
+    added for future retry strategies.
+
+Breaking Changes
+  - JssError::RateLimited is now RateLimited { retry_after }.
+  - JssError enum has three new variants (ApiError, FileOperation,
+    Internal); exhaustive matches must be updated.
+  - Server errors that were previously JssError::Http with empty
+    body now may return JssError::ApiError when the body contains
+    a valid Frappe JSON error.
+
+-  - - - - - - - - - - - - - - - - - - - -
+6. Usage examples
+-  - - - - - - - - - - - - - - - - - - - -
+
+All examples assume you have created and authenticated a client.
+
+6.1 Basic authenticated request
+
+    let body = client.authenticated_get("/api/resource/ToDo").await?;
+    println!("{}", body);
+
+    let response = client
+        .authenticated_post("/api/resource/ToDo",
+            r#"{"description":"test"}"#)
+        .await?;
+
+6.2 File upload
+
+    let result = client
+        .upload_file("photo.png", image_bytes,
+                      "Customer", "CUST-001", "image")
+        .await?;
+    // result is JSON with file_url
+
+6.3 File download
+
+    let bytes = client.download_file("/files/photo.png").await?;
+    std::fs::write("local.png", &bytes)?;
+
+    // or
+    client.download_file_to_path("/files/photo.png",
+                                 Path::new("local.png")).await?;
+
+6.4 Report
+
+    let report_data: serde_json::Value = client
+        .report("Sales Analytics")
+        .add_filter("from_date", "2026-01-01")
+        .add_filter("to_date", "2026-06-30")
+        .run()
+        .await?;
+
+    // raw string
+    let raw = client.report("Balance Sheet").run_raw().await?;
+
+6.5 Doctype listing with filters and pagination
+
+    let list: serde_json::Value = client
+        .doctype("ToDo")
+        .filter("status", "=", "Open")
+        .fields(vec!["name", "description", "date"])
+        .order_by("creation desc")
+        .limit(50)
+        .execute()
+        .await?;
+
+    // All records, auto‑paginated
+    let all_todos: Vec<ToDoStruct> = client
+        .doctype("ToDo")
+        .filter("status", "=", "Cancelled")
+        .all()
+        .await?;
+
+6.6 Single document CRUD
+
+    let doc = client.get_doc("Customer", "CUST-001").await?;
+
+    #[derive(Serialize)]
+    struct NewCustomer {
+        customer_name: String,
+        customer_group: String,
+    }
+    let new_cust = NewCustomer { ... };
+    let result = client.create_doc("Customer", &new_cust).await?;
+
+    let result = client.update_doc("Customer", "CUST-001",
+                                     &update_data).await?;
+
+    let result = client.delete_doc("Customer", "OLD-CUST").await?;
+
+6.7 Call a custom method
+
+    use std::collections::HashMap;
+    let mut args = HashMap::new();
+    args.insert("doctype".into(), "Sales Invoice".into());
+    args.insert("docname".into(), "SINV-0001".into());
+    let result = client.call_method("frappe.email.send", Some(args)).await?;
+
+6.8 Error handling
+
+    match client.authenticated_get("/api/resource/ToDo").await {
+        Err(JssError::ApiError { exc_type, message, status }) => {
+            eprintln!("API error [{exc_type}]: {message} (HTTP {status})");
+        }
+        Err(JssError::RateLimited { retry_after }) => {
+            eprintln!("Rate limited, retry after {:?}", retry_after);
+        }
+        other => { /* handle other errors */ }
+    }
+
+    // Convert any error to HTTP status code
+    let status = some_error.status_code();
+
+-  - - - - - - - - - - - - - - - - - - - -
+7. Environment variables (CLI)
+-  - - - - - - - - - - - - - - - - - - - -
+
+These are used by cli_auth and can be used as a reference for your
+own applications.
+
+JSS_BASE_URL            Required. Base URL of the JSS instance.
+JSS_EMAIL               Required for session auth.
+JSS_PASSWORD            Required for session auth.
+JSS_TOKEN_API_KEY       Required for token auth (ignored if session
+                        variables are set).
+JSS_TOKEN_API_SECRET    Required for token auth.
+JSS_EXPECTED_SITENAME   Optional. If set, login verifies the sitename
+                        in frappe.boot matches.
+JSS_REQUIRED_ROLES      Optional. Comma‑separated roles the user must
+                        possess.
+JSS_TIMEOUT_SECS        Optional. Request timeout in seconds (default 30).
+JSS_MAX_RETRIES         Optional. Maximum retry attempts (default 3).
+JSS_USER_AGENT          Optional. Custom User‑Agent header.
+JSS_INSECURE_SSL        Optional. Accept invalid TLS certificates
+                        (true/false, default false).
+
+-  - - - - - - - - - - - - - - - - - - - -
+8. Mock server for development
+-  - - - - - - - - - - - - - - - - - - - -
+
+A full mock server is provided in examples/jss_mock_server.rs. It
+replicates the exact behaviour of a JSS production instance: login
+response, cookie setting, /app dashboard with frappe.boot,
+get_logged_user, logout, and the missing CSRF endpoint (returns 417).
+
+Start the mock server:
+
     cargo run --example jss_mock_server
 
-  It listens on http://127.0.0.1:8080 and replicates the exact behaviour
-  of a JSS production instance: login response ("Logged In"), cookie
-  setting, /app dashboard page with frappe.boot, get_logged_user,
-  logout, and the missing CSRF endpoint (returns 417).
+It listens on http://127.0.0.1:8080.
 
-  Set env vars accordingly:
+Set environment variables accordingly:
+
     export JSS_BASE_URL=http://127.0.0.1:8080
     export JSS_EMAIL=dev@example.com
     export JSS_PASSWORD=password123
     export JSS_INSECURE_SSL=true
 
-  Then run the CLI or integration tests. The library does not know
-  the difference between mock and production.
+Then run the CLI or integration tests. The library does not know the
+difference between mock and production.
 
-----------------------------------------------------------------
-Testing
-----------------------------------------------------------------
+-  - - - - - - - - - - - - - - - - - - - -
+9. Testing
+-  - - - - - - - - - - - - - - - - - - - -
 
-  Unit tests (no server):
+Unit tests (no server required):
+
     cargo test --lib
 
-  Integration tests (requires mock server running first):
+Integration tests require the mock server to be running:
+
     (terminal 1)  cargo run --example jss_mock_server
     (terminal 2)  JSS_BASE_URL=http://127.0.0.1:8080 \
                   JSS_EMAIL=dev@example.com \
@@ -168,16 +450,23 @@ Testing
                   JSS_INSECURE_SSL=true \
                   cargo test --test client_tests
 
-  All tests:
-    Start mock server, then:
+For the new test suites:
+
+    cargo test --test file_tests
+    cargo test --test report_tests
+    cargo test --test resource_tests
+
+Run all tests after starting the mock server:
+
     cargo test --workspace
 
-----------------------------------------------------------------
-CI pipeline
-----------------------------------------------------------------
+-  - - - - - - - - - - - - - - - - - - - -
+10. CI pipeline
+-  - - - - - - - - - - - - - - - - - - - -
 
-  Located at .github/workflows/ci.yml. On every push or pull request to
-  master:
+Located at .github/workflows/ci.yml. On every push or pull request
+to master:
+
     - Check formatting (rustfmt)
     - Lint (clippy -D warnings)
     - Compile check (cargo check --workspace)
@@ -186,10 +475,10 @@ CI pipeline
     - Build release binary (cargo build --release)
     - Upload release artifact (cli_auth)
 
-----------------------------------------------------------------
-License
-----------------------------------------------------------------
+-  - - - - - - - - - - - - - - - - - - - -
+11. License
+-  - - - - - - - - - - - - - - - - - - - -
 
-  MIT License – see LICENSE file.
+MIT License – see LICENSE file.
 
-  Copyright (c) 2026 mroczect <mroczect@proton.me>
+Copyright (c) 2026 mroczect <mroczect@proton.me>
