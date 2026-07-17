@@ -70,7 +70,7 @@ pub struct FrappeBoot {
     #[serde(default)]
     pub frequently_visited_links: Vec<FrequentLink>,
     #[serde(default)]
-    pub developer_mode: bool,
+    pub developer_mode: i32,
     #[serde(default)]
     pub read_only: bool,
     #[serde(default)]
@@ -79,12 +79,80 @@ pub struct FrappeBoot {
     pub desk_settings: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub desk_theme: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BootUser {
     #[serde(default)]
-    pub versions: HashMap<String, String>,
+    pub name: String,
     #[serde(default)]
-    pub lang: Option<String>,
+    pub email: String,
     #[serde(default)]
-    pub timezone_info: Option<serde_json::Value>,
+    pub full_name: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub allow_modules: Vec<String>,
+    #[serde(default)]
+    pub user_type: String,
+    #[serde(default)]
+    pub permissions: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub can_select: Vec<String>,
+    #[serde(default)]
+    pub can_create: Vec<String>,
+    #[serde(default)]
+    pub can_write: Vec<String>,
+    #[serde(default)]
+    pub can_read: Vec<String>,
+    #[serde(default)]
+    pub can_submit: Vec<String>,
+    #[serde(default)]
+    pub can_cancel: Vec<String>,
+    #[serde(default)]
+    pub can_delete: Vec<String>,
+    #[serde(default)]
+    pub can_get_report: Vec<String>,
+    #[serde(default)]
+    pub all_reports: HashMap<String, ReportMeta>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SysDefaults {
+    #[serde(default)]
+    pub default_app: Option<String>,
+    #[serde(default)]
+    pub time_zone: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReportMeta {
+    #[serde(default)]
+    pub modified: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub ref_doctype: String,
+    #[serde(default)]
+    pub report_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DashboardMeta {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AppData {
+    pub app_name: String,
+    pub app_title: String,
+    pub app_route: String,
+    #[serde(default)]
+    pub app_logo_url: serde_json::Value,
+    #[serde(default)]
+    pub modules: Vec<String>,
+    #[serde(default)]
+    pub workspaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -185,78 +253,4 @@ pub struct PageInfo {
 pub struct FrequentLink {
     pub route: String,
     pub count: i32,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ReportMeta {
-    #[serde(default)]
-    pub modified: String,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub ref_doctype: String,
-    #[serde(default)]
-    pub report_type: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DashboardMeta {
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct AppData {
-    pub app_name: String,
-    pub app_title: String,
-    pub app_route: String,
-    #[serde(default)]
-    pub app_logo_url: serde_json::Value,
-    #[serde(default)]
-    pub modules: Vec<String>,
-    #[serde(default)]
-    pub workspaces: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct BootUser {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub email: String,
-    #[serde(default)]
-    pub full_name: String,
-    #[serde(default)]
-    pub roles: Vec<String>,
-    #[serde(default)]
-    pub allow_modules: Vec<String>,
-    #[serde(default)]
-    pub user_type: String,
-    #[serde(default)]
-    pub permissions: HashMap<String, Vec<String>>,
-    #[serde(default)]
-    pub can_select: Vec<String>,
-    #[serde(default)]
-    pub can_create: Vec<String>,
-    #[serde(default)]
-    pub can_write: Vec<String>,
-    #[serde(default)]
-    pub can_read: Vec<String>,
-    #[serde(default)]
-    pub can_submit: Vec<String>,
-    #[serde(default)]
-    pub can_cancel: Vec<String>,
-    #[serde(default)]
-    pub can_delete: Vec<String>,
-    #[serde(default)]
-    pub can_get_report: Vec<String>,
-    #[serde(default)]
-    pub all_reports: HashMap<String, ReportMeta>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct SysDefaults {
-    #[serde(default)]
-    pub default_app: Option<String>,
-    #[serde(default)]
-    pub time_zone: Option<String>,
 }
