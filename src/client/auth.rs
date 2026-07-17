@@ -197,7 +197,7 @@ impl RjssClient {
         req
     }
 
-    fn build_join_url(&self, path: &str) -> Result<reqwest::Url, JuraganError> {
+    pub(crate) fn build_join_url(&self, path: &str) -> Result<reqwest::Url, JuraganError> {
         if path.contains("..") {
             return Err(JuraganError::Validation(
                 "Path traversal not allowed".into(),
@@ -450,5 +450,607 @@ impl RjssClient {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::handler::env::ClientConfig;
+    use crate::handler::types::SessionInfo;
+    use reqwest::Url;
+    use secrecy::SecretString;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn session_auth(email: &str, password: &str) -> AuthMode {
+        AuthMode::Session {
+            email: SecretString::new(Box::from(email.to_string())),
+            password: SecretString::new(Box::from(password.to_string())),
+        }
+    }
+
+    async fn setup_test_client(server: &MockServer, auth_mode: AuthMode) -> RjssClient {
+        let config = ClientConfig {
+            base_url: Url::parse(&server.uri()).unwrap(),
+            auth_mode,
+            expected_sitename: None,
+            required_roles: vec![],
+            timeout_secs: 5,
+            max_retries: 1,
+            user_agent: "test".into(),
+            insecure_ssl: true,
+        };
+        RjssClient::new(config).unwrap()
+    }
+
+    async fn mock_authenticated_requests(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid", "full_name": "User"}
+            })))
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"message": "csrf"})),
+            )
+            .mount(server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "roles": []}
+            })))
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn test_authenticate_token_mode() {
+        let server = MockServer::start().await;
+        let config = ClientConfig {
+            base_url: Url::parse(&server.uri()).unwrap(),
+            auth_mode: AuthMode::Token {
+                api_key: "key".into(),
+                api_secret: SecretString::new(Box::from("secret".to_string())),
+            },
+            expected_sitename: Some("expected_site".to_string()),
+            required_roles: vec![],
+            timeout_secs: 5,
+            max_retries: 1,
+            user_agent: "test".into(),
+            insecure_ssl: true,
+        };
+        let mut client = RjssClient::new(config).unwrap();
+        client.authenticate().await.unwrap();
+        assert!(client.session.is_some());
+        let session = client.session.as_ref().unwrap();
+        assert_eq!(session.sid.expose_secret(), "token-mode");
+        assert_eq!(session.sitename, "expected_site");
+    }
+
+    #[tokio::test]
+    async fn test_login_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid123", "full_name": "Test User"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"message": "csrf_token_value"})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "email": "admin@example.com", "roles": ["System Manager"]}
+            })))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let s = client.session.unwrap();
+        assert_eq!(s.sid.expose_secret(), "sid123");
+        assert_eq!(s.csrf_token.expose_secret(), "csrf_token_value");
+        assert_eq!(s.full_name, Some("Test User".to_string()));
+        assert_eq!(s.roles, vec!["System Manager"]);
+    }
+
+    #[tokio::test]
+    async fn test_login_rate_limited() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(429))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::RateLimited)));
+    }
+
+    #[tokio::test]
+    async fn test_login_http_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(403).set_body_string("Forbidden"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::Auth(_))));
+    }
+
+    #[tokio::test]
+    async fn test_login_csrf_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::Csrf(_))));
+    }
+
+    #[tokio::test]
+    async fn test_login_user_info_failure() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"message": "csrf"})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::Auth(_))));
+    }
+
+    #[tokio::test]
+    async fn test_login_sitename_mismatch() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"message": "csrf"})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "roles": []}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/app"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_string(r#"some html "sitename": "wrongsite" more"#),
+            )
+            .mount(&server)
+            .await;
+
+        let config = ClientConfig {
+            base_url: Url::parse(&server.uri()).unwrap(),
+            auth_mode: session_auth("user", "pass"),
+            expected_sitename: Some("expectedsite".into()),
+            required_roles: vec![],
+            timeout_secs: 5,
+            max_retries: 1,
+            user_agent: "test".into(),
+            insecure_ssl: true,
+        };
+        let mut client = RjssClient::new(config).unwrap();
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::SitenameMismatch { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_login_missing_required_roles() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "sid"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"message": "csrf"})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "roles": ["Guest"]}
+            })))
+            .mount(&server)
+            .await;
+
+        let config = ClientConfig {
+            base_url: Url::parse(&server.uri()).unwrap(),
+            auth_mode: session_auth("user", "pass"),
+            expected_sitename: None,
+            required_roles: vec!["System Manager".into()],
+            timeout_secs: 5,
+            max_retries: 1,
+            user_agent: "test".into(),
+            insecure_ssl: true,
+        };
+        let mut client = RjssClient::new(config).unwrap();
+        let result = client.authenticate().await;
+        assert!(matches!(result, Err(JuraganError::Permission(_))));
+    }
+
+    #[tokio::test]
+    async fn test_logout_success() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/logout"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.session = Some(SessionInfo {
+            sid: SecretString::new(Box::from("sid".to_string())),
+            csrf_token: SecretString::new(Box::from("csrf".to_string())),
+            full_name: None,
+            sitename: "".into(),
+            roles: vec![],
+        });
+        client.credentials = Some((
+            SecretString::new(Box::from("user".to_string())),
+            SecretString::new(Box::from("pass".to_string())),
+        ));
+
+        client.logout().await.unwrap();
+        assert!(client.session.is_none());
+        assert!(client.credentials.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_logout_not_authenticated() {
+        let server = MockServer::start().await;
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.logout().await;
+        assert!(matches!(result, Err(JuraganError::NotAuthenticated)));
+    }
+
+    #[tokio::test]
+    async fn test_logout_http_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/logout"))
+            .respond_with(ResponseTemplate::new(500).set_body_string("error"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.session = Some(SessionInfo {
+            sid: SecretString::new(Box::from("sid".to_string())),
+            csrf_token: SecretString::new(Box::from("csrf".to_string())),
+            full_name: None,
+            sitename: "".into(),
+            roles: vec![],
+        });
+
+        let result = client.logout().await;
+        assert!(matches!(result, Err(JuraganError::Http { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_ensure_session_valid() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "roles": []}
+            })))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.session = Some(SessionInfo {
+            sid: SecretString::new(Box::from("sid".to_string())),
+            csrf_token: SecretString::new(Box::from("csrf".to_string())),
+            full_name: None,
+            sitename: "".into(),
+            roles: vec![],
+        });
+
+        let result = client.ensure_session().await;
+        assert!(result.is_ok());
+    }
+    #[tokio::test]
+    async fn test_ensure_session_expired_triggers_relogin() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(401))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/method/login"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"sid": "new_sid"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_csrf_token"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"message": "new_csrf"})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/method/frappe.auth.get_logged_user"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "message": {"name": "admin", "roles": []}
+            })))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.session = Some(SessionInfo {
+            sid: SecretString::new(Box::from("old_sid".to_string())),
+            csrf_token: SecretString::new(Box::from("old_csrf".to_string())),
+            full_name: None,
+            sitename: "".into(),
+            roles: vec![],
+        });
+        client.credentials = Some((
+            SecretString::new(Box::from("user".to_string())),
+            SecretString::new(Box::from("pass".to_string())),
+        ));
+
+        client.ensure_session().await.unwrap();
+        assert_eq!(
+            client.session.as_ref().unwrap().sid.expose_secret(),
+            "new_sid"
+        );
+    }
+    #[tokio::test]
+    async fn test_authenticated_get_success() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/api/resource/test"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("response body"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let body = client
+            .authenticated_get("/api/resource/test")
+            .await
+            .unwrap();
+        assert_eq!(body, "response body");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_get_unauthorized() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/api/resource/test"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let result = client.authenticated_get("/api/resource/test").await;
+        assert!(matches!(result, Err(JuraganError::Auth(_))));
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_get_server_error_retry() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/api/resource/test"))
+            .respond_with(ResponseTemplate::new(500))
+            .up_to_n_times(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/resource/test"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let body = client
+            .authenticated_get("/api/resource/test")
+            .await
+            .unwrap();
+        assert_eq!(body, "ok");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_post_with_csrf() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("POST"))
+            .and(path("/api/resource/test"))
+            .and(wiremock::matchers::header("X-Frappe-CSRF-Token", "csrf"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("created"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let body = client
+            .authenticated_post("/api/resource/test", r#"{"key":"value"}"#)
+            .await
+            .unwrap();
+        assert_eq!(body, "created");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_put_with_csrf() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("PUT"))
+            .and(path("/api/resource/test"))
+            .and(wiremock::matchers::header("X-Frappe-CSRF-Token", "csrf"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("updated"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let body = client
+            .authenticated_put("/api/resource/test", r#"{"key":"value"}"#)
+            .await
+            .unwrap();
+        assert_eq!(body, "updated");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_delete_with_csrf() {
+        let server = MockServer::start().await;
+        mock_authenticated_requests(&server).await;
+        Mock::given(method("DELETE"))
+            .and(path("/api/resource/test"))
+            .and(wiremock::matchers::header("X-Frappe-CSRF-Token", "csrf"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("deleted"))
+            .mount(&server)
+            .await;
+
+        let mut client = setup_test_client(&server, session_auth("user", "pass")).await;
+        client.authenticate().await.unwrap();
+
+        let body = client
+            .authenticated_delete("/api/resource/test")
+            .await
+            .unwrap();
+        assert_eq!(body, "deleted");
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_request_path_traversal_error() {
+        let server = MockServer::start().await;
+        let client = setup_test_client(&server, session_auth("user", "pass")).await;
+        let result = client.authenticated_get("/../etc/passwd").await;
+        assert!(matches!(result, Err(JuraganError::Validation(_))));
+    }
+
+    #[tokio::test]
+    async fn test_token_mode_authenticated_request_has_auth_header() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/resource/test"))
+            .and(wiremock::matchers::header(
+                "Authorization",
+                "token key:secret",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+            .mount(&server)
+            .await;
+
+        let config = ClientConfig {
+            base_url: Url::parse(&server.uri()).unwrap(),
+            auth_mode: AuthMode::Token {
+                api_key: "key".into(),
+                api_secret: SecretString::new(Box::from("secret".to_string())),
+            },
+            expected_sitename: None,
+            required_roles: vec![],
+            timeout_secs: 5,
+            max_retries: 1,
+            user_agent: "test".into(),
+            insecure_ssl: true,
+        };
+        let client = RjssClient::new(config).unwrap();
+        let body = client
+            .authenticated_get("/api/resource/test")
+            .await
+            .unwrap();
+        assert_eq!(body, "ok");
+    }
+
+    #[test]
+    fn test_build_join_url_traversal() {
+        let config = ClientConfig {
+            base_url: Url::parse("https://example.com").unwrap(),
+            auth_mode: AuthMode::Token {
+                api_key: "k".into(),
+                api_secret: SecretString::new(Box::from("s".to_string())),
+            },
+            expected_sitename: None,
+            required_roles: vec![],
+            timeout_secs: 1,
+            max_retries: 0,
+            user_agent: "t".into(),
+            insecure_ssl: false,
+        };
+        let client = RjssClient::new(config).unwrap();
+        assert!(client.build_join_url("/valid/path").is_ok());
+        assert!(client.build_join_url("/../etc").is_err());
     }
 }
