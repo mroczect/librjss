@@ -1,0 +1,32 @@
+name: Deploy Manpage to GitHub Pages
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'docs/librjss.3'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install mandoc
+        run: sudo apt-get update && sudo apt-get install -y mandoc
+
+      - name: Generate HTML from manpage
+        run: mandoc -Thtml docs/librjss.3 > librjss.html
+
+      - name: Rename to index.html (agar jadi halaman utama Pages)
+        run: mv librjss.html index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
+          keep_files: false
