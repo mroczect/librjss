@@ -1,484 +1,693 @@
--  - - - - - - - - - - - - - - - - - - - -
-            	librjss
--  - - - - - - - - - - - - - - - - - - - -
-
-Robust, zero-framework client library for Juragan Subsystem (JSS)
-authentication and API access. Provides cookie-based session management
-with automatic CSRF token extraction, retry logic, and full diagnostic
-tracing.
-
-Version: 1.2.0   License: MIT   Status: Early development
-
--  - - - - - - - - - - - - - - - - - - - -
-        	Table of Contents
--  - - - - - - - - - - - - - - - - - - - -
-
- 1. Installation
- 2. Quick start – CLI binary
- 3. Project layout
- 4. Core concepts
- 5. New in version 1.2.0
- 6. Usage examples
- 7. Environment variables (CLI)
- 8. Mock server for development
- 9. Testing
-10. CI pipeline
-11. License
-
--  - - - - - - - - - - - - - - - - - - - -
-1. Installation
--  - - - - - - - - - - - - - - - - - - - -
-
-Add the dependency to your Cargo.toml:
-
-    [dependencies]
-    librjss = { git = "https://github.com/mroczect/librjss.git" }
-
-Or use a specific version / tag as needed.
-
--  - - - - - - - - - - - - - - - - - - - -
-2. Quick start – CLI binary
--  - - - - - - - - - - - - - - - - - - - -
-
-A minimal CLI binary is included (src/bin/cli_auth.rs). Build and run
-with environment variables:
-
-    export JSS_BASE_URL=https://app.juragansejati.biz.id
-    export JSS_EMAIL=user@example.com
-    export JSS_PASSWORD=password
-    export JSS_INSECURE_SSL=false          # set true only for dev
-
-    cargo run --bin cli_auth
-
-The CLI authenticates, prints session info, and performs a test request
-to /api/method/frappe.auth.get_logged_user.
-
-For token authentication, set JSS_TOKEN_API_KEY and JSS_TOKEN_API_SECRET
-instead of email/password.
-
--  - - - - - - - - - - - - - - - - - - - -
-3. Project layout
--  - - - - - - - - - - - - - - - - - - - -
-
-src/
-  api/
-    auth/
-      endpoints.rs         AuthEndpoints trait (URL builders)
-      mod.rs
-    mod.rs
-
-  bin/
-    cli_auth.rs            CLI login tool
-
-  client/
-    auth/
-      app_parser.rs         Fetch /app, extract CSRF and frappe.boot
-      http_helpers.rs       Auth header application, URL joining, backoff
-      login.rs              Session login logic
-      logout.rs             Session logout
-      session.rs            Session maintenance (ensure_session)
-      token.rs              Token‑mode session setup
-      mod.rs
-    methods/
-      delete.rs             authenticated_delete
-      get.rs                authenticated_get
-      post.rs               authenticated_post
-      put.rs                authenticated_put
-      mod.rs
-    file.rs                 Upload & download files (new)
-    report.rs               Report execution builder (new)
-    resource.rs             Doctype CRUD & listing builder (new)
-    mod.rs                  RjssClient struct and core methods
-
-  handler/
-    config/
-      auth_mode.rs          AuthMode enum
-      client_config.rs      ClientConfig struct
-      validation.rs         Config validation
-      mod.rs
-    env.rs                  Re‑exports for convenience
-    error.rs                JssError enum (extended in 1.2.0)
-    types/
-      boot.rs               FrappeBoot, BootUser, permissions, reports
-      login.rs              LoginApiResponse, LoginApiMessage
-      session.rs            SessionInfo
-      user_info.rs          UserInfo, UserInfoMessage
-      mod.rs
-    mod.rs
-
-  lib.rs                    Crate root, public re‑exports
-
-examples/
-  jss_mock_server.rs        Full offline mock of a JSS server
-
-tests/
-  api_auth_tests.rs         URL builder tests
-  client_tests.rs           Integration tests against mock server
-  env_tests.rs              Config validation tests
-  error_tests.rs            Error type tests
-  file_tests.rs             File handling tests
-  report_tests.rs           Report execution tests
-  resource_tests.rs         Resource CRUD tests
-  types_tests.rs            Deserialisation tests
-
-.github/
-  workflows/
-    ci.yml                  CI pipeline
-
--  - - - - - - - - - - - - - - - - - - - -
-4. Core concepts
--  - - - - - - - - - - - - - - - - - - - -
-
-RjssClient
-----------
-Central client holding configuration, HTTP client, session, and
-credentials. Public API (full list):
-
-  new(config) -> Result<Self, JssError>
-  authenticate() -> Result<(), JssError>
-  logout() -> Result<(), JssError>
-  ensure_session() -> Result<(), JssError>
-  session_info() -> Option<&SessionInfo>
-  boot() -> Option<&FrappeBoot>          // new
-  base_url() -> &Url
-  trace_id() -> &str
-  authenticated_get(path) -> Result<String, JssError>
-  authenticated_post(path, json) -> Result<String, JssError>
-  authenticated_put(path, json) -> Result<String, JssError>
-  authenticated_delete(path) -> Result<String, JssError>
-
-  // File operations (new)
-  upload_file(file_name, file_content, doctype, docname, fieldname)
-      -> Result<String, JssError>
-  download_file(file_url) -> Result<Vec<u8>, JssError>
-  download_file_to_path(file_url, save_path) -> Result<(), JssError>
-
-  // Report builder (new)
-  report(name) -> ReportBuilder
-
-  // Doctype/resource builder (new)
-  doctype(name) -> ResourceBuilder
-  get_doc(doctype, name) -> Result<String, JssError>
-  create_doc(doctype, &data) -> Result<String, JssError>
-  update_doc(doctype, name, &data) -> Result<String, JssError>
-  delete_doc(doctype, name) -> Result<String, JssError>
-  call_method(method, args) -> Result<String, JssError>
-
-AuthMode (enum)
--  - - - - - - - - - - - - - - - - - - - --
-  Session { email: SecretString, password: SecretString }
-  Token   { api_key: String, api_secret: SecretString }
-
-ClientConfig
-------------
-  base_url: Url
-  auth_mode: AuthMode
-  expected_sitename: Option<String>
-  required_roles: Vec<String>
-  timeout_secs: u64           (default 30)
-  max_retries: u32            (default 3)
-  user_agent: String
-  insecure_ssl: bool          (default false)
-  Method: validate() -> Result<(), JssError>
-
-JssError (enum) – version 1.2.0 extended
--  - - - - - - - - - - - - - - - - - - - ------------
-  Config(String)
-  Validation(String)
-  Network(reqwest::Error)
-  Http { status, body }
-  ApiError { exc_type, message, status }      // new
-  Auth(String)
-  Csrf(String)
-  Permission(String)
-  SitenameMismatch { expected, actual }
-  NotAuthenticated
-  RateLimited { retry_after: Option<u64> }    // changed
-  Parse(String)
-  Expired
-  Cancelled
-  FileOperation(String)                       // new
-  Internal(String)                            // new
-
-New method: from_api_response(status, body) – parses Frappe JSON
-errors; status_code() maps any variant to an HTTP status.
-
-SessionInfo
------------
-  sid: SecretString
-  csrf_token: SecretString
-  full_name: Option<String>
-  sitename: String
-  roles: Vec<String>
-
-FrappeBoot (extended)
--  - - - - - - - - - - - - - - - - - - - --------
-Deserialised from the /app dashboard. Now includes:
-
-  user: BootUser (with name, email, full_name, roles, user_type,
-        permissions, and can_select/can_create/can_write/can_read/
-        can_submit/can_cancel/can_delete/can_get_report,
-        all_reports)
-  sitename, csrf_token, sysdefaults
-  app_logo_url, home_page
-  allow_modules
-  can_select, can_create, can_write, can_read, can_submit,
-  can_cancel, can_delete, can_get_report (global)
-  all_reports: HashMap<String, ReportMeta>
-  module_wise_workspaces
-  dashboards: Vec<DashboardMeta>
-  single_types, calendars, treeviews
-  module_app, app_data
-
-BootUser also contains the same permission lists and all_reports.
-
-ReportMeta, DashboardMeta, AppData, SysDefaults are new supporting
-structs.
-
--  - - - - - - - - - - - - - - - - - - - -
-5. New in version 1.2.0
--  - - - - - - - - - - - - - - - - - - - -
-
-File Handling
-  - upload_file: multipart upload to /api/method/upload_file.
-  - download_file: download raw bytes from a file URL.
-  - download_file_to_path: save directly to disk.
-
-Report Execution
-  - client.report("Report Name") returns a ReportBuilder.
-  - add_filter("field", "value") for filtering.
-  - run_raw() -> JSON string, run::<T>() -> deserialized.
-
-Doctype/Resource CRUD
-  - client.doctype("ToDo") returns a ResourceBuilder with filter(),
-    fields(), order_by(), limit(), limit_start().
-  - execute_raw(), execute::<T>() for a single page.
-  - all::<T>() auto‑paginates and collects every record.
-  - Direct methods: get_doc, create_doc, update_doc, delete_doc.
-  - call_method: call any whitelisted Frappe server method.
-
-Boot Data Exposure
-  - After authentication, FrappeBoot is stored and accessible via
-    client.boot().
-  - All permission vectors and reports are now available.
-
-Enhanced Error Model
-  - ApiError variant captures Frappe’s exc_type and exc message.
-  - RateLimited now carries optional Retry-After duration.
-  - New FileOperation and Internal variants.
-  - from_api_response() and status_code() helper methods.
-
-Better Retry & Rate Limit Handling
-  - All methods now read response body on server errors.
-  - Login extracts Retry-After header.
-  - Internal helpers extract_retry_after and classify_response
-    added for future retry strategies.
-
-Breaking Changes
-  - JssError::RateLimited is now RateLimited { retry_after }.
-  - JssError enum has three new variants (ApiError, FileOperation,
-    Internal); exhaustive matches must be updated.
-  - Server errors that were previously JssError::Http with empty
-    body now may return JssError::ApiError when the body contains
-    a valid Frappe JSON error.
-
--  - - - - - - - - - - - - - - - - - - - -
-6. Usage examples
--  - - - - - - - - - - - - - - - - - - - -
-
-All examples assume you have created and authenticated a client.
-
-6.1 Basic authenticated request
-
-    let body = client.authenticated_get("/api/resource/ToDo").await?;
-    println!("{}", body);
-
-    let response = client
-        .authenticated_post("/api/resource/ToDo",
-            r#"{"description":"test"}"#)
-        .await?;
-
-6.2 File upload
-
-    let result = client
-        .upload_file("photo.png", image_bytes,
-                      "Customer", "CUST-001", "image")
-        .await?;
-    // result is JSON with file_url
-
-6.3 File download
-
-    let bytes = client.download_file("/files/photo.png").await?;
-    std::fs::write("local.png", &bytes)?;
-
-    // or
-    client.download_file_to_path("/files/photo.png",
-                                 Path::new("local.png")).await?;
-
-6.4 Report
-
-    let report_data: serde_json::Value = client
-        .report("Sales Analytics")
-        .add_filter("from_date", "2026-01-01")
-        .add_filter("to_date", "2026-06-30")
-        .run()
-        .await?;
-
-    // raw string
-    let raw = client.report("Balance Sheet").run_raw().await?;
-
-6.5 Doctype listing with filters and pagination
-
-    let list: serde_json::Value = client
-        .doctype("ToDo")
-        .filter("status", "=", "Open")
-        .fields(vec!["name", "description", "date"])
-        .order_by("creation desc")
-        .limit(50)
-        .execute()
-        .await?;
-
-    // All records, auto‑paginated
-    let all_todos: Vec<ToDoStruct> = client
-        .doctype("ToDo")
-        .filter("status", "=", "Cancelled")
-        .all()
-        .await?;
-
-6.6 Single document CRUD
-
-    let doc = client.get_doc("Customer", "CUST-001").await?;
-
-    #[derive(Serialize)]
-    struct NewCustomer {
-        customer_name: String,
-        customer_group: String,
-    }
-    let new_cust = NewCustomer { ... };
-    let result = client.create_doc("Customer", &new_cust).await?;
-
-    let result = client.update_doc("Customer", "CUST-001",
-                                     &update_data).await?;
-
-    let result = client.delete_doc("Customer", "OLD-CUST").await?;
-
-6.7 Call a custom method
-
-    use std::collections::HashMap;
-    let mut args = HashMap::new();
-    args.insert("doctype".into(), "Sales Invoice".into());
-    args.insert("docname".into(), "SINV-0001".into());
-    let result = client.call_method("frappe.email.send", Some(args)).await?;
-
-6.8 Error handling
-
-    match client.authenticated_get("/api/resource/ToDo").await {
-        Err(JssError::ApiError { exc_type, message, status }) => {
-            eprintln!("API error [{exc_type}]: {message} (HTTP {status})");
-        }
-        Err(JssError::RateLimited { retry_after }) => {
-            eprintln!("Rate limited, retry after {:?}", retry_after);
-        }
-        other => { /* handle other errors */ }
-    }
-
-    // Convert any error to HTTP status code
-    let status = some_error.status_code();
-
--  - - - - - - - - - - - - - - - - - - - -
-7. Environment variables (CLI)
--  - - - - - - - - - - - - - - - - - - - -
-
-These are used by cli_auth and can be used as a reference for your
-own applications.
-
-JSS_BASE_URL            Required. Base URL of the JSS instance.
-JSS_EMAIL               Required for session auth.
-JSS_PASSWORD            Required for session auth.
-JSS_TOKEN_API_KEY       Required for token auth (ignored if session
-                        variables are set).
-JSS_TOKEN_API_SECRET    Required for token auth.
-JSS_EXPECTED_SITENAME   Optional. If set, login verifies the sitename
-                        in frappe.boot matches.
-JSS_REQUIRED_ROLES      Optional. Comma‑separated roles the user must
-                        possess.
-JSS_TIMEOUT_SECS        Optional. Request timeout in seconds (default 30).
-JSS_MAX_RETRIES         Optional. Maximum retry attempts (default 3).
-JSS_USER_AGENT          Optional. Custom User‑Agent header.
-JSS_INSECURE_SSL        Optional. Accept invalid TLS certificates
-                        (true/false, default false).
-
--  - - - - - - - - - - - - - - - - - - - -
-8. Mock server for development
--  - - - - - - - - - - - - - - - - - - - -
-
-A full mock server is provided in examples/jss_mock_server.rs. It
-replicates the exact behaviour of a JSS production instance: login
-response, cookie setting, /app dashboard with frappe.boot,
-get_logged_user, logout, and the missing CSRF endpoint (returns 417).
-
-Start the mock server:
-
-    cargo run --example jss_mock_server
-
-It listens on http://127.0.0.1:8080.
-
-Set environment variables accordingly:
-
-    export JSS_BASE_URL=http://127.0.0.1:8080
-    export JSS_EMAIL=dev@example.com
-    export JSS_PASSWORD=password123
-    export JSS_INSECURE_SSL=true
-
-Then run the CLI or integration tests. The library does not know the
-difference between mock and production.
-
--  - - - - - - - - - - - - - - - - - - - -
-9. Testing
--  - - - - - - - - - - - - - - - - - - - -
-
-Unit tests (no server required):
-
-    cargo test --lib
-
-Integration tests require the mock server to be running:
-
-    (terminal 1)  cargo run --example jss_mock_server
-    (terminal 2)  JSS_BASE_URL=http://127.0.0.1:8080 \
-                  JSS_EMAIL=dev@example.com \
-                  JSS_PASSWORD=password123 \
-                  JSS_INSECURE_SSL=true \
-                  cargo test --test client_tests
-
-For the new test suites:
-
-    cargo test --test file_tests
-    cargo test --test report_tests
-    cargo test --test resource_tests
-
-Run all tests after starting the mock server:
-
-    cargo test --workspace
-
--  - - - - - - - - - - - - - - - - - - - -
-10. CI pipeline
--  - - - - - - - - - - - - - - - - - - - -
-
-Located at .github/workflows/ci.yml. On every push or pull request
-to master:
-
-    - Check formatting (rustfmt)
-    - Lint (clippy -D warnings)
-    - Compile check (cargo check --workspace)
-    - Run unit tests (cargo test --lib)
-    - Start mock server, run integration tests
-    - Build release binary (cargo build --release)
-    - Upload release artifact (cli_auth)
-
--  - - - - - - - - - - - - - - - - - - - -
-11. License
--  - - - - - - - - - - - - - - - - - - - -
-
-MIT License – see LICENSE file.
-
-Copyright (c) 2026 mroczect <mroczect@proton.me>
+librjss(1)                  General Commands Manual                 librjss(1)
+
+NAME
+     librjss – Robust async Rust client for Juragan Subsystem (JSS) /
+               Frappe / ERPNext APIs.
+
+SYNOPSIS
+     [dependencies]
+     librjss = { git = "https://github.com/mroczect/librjss.git" }
+
+     use librjss::{
+         RjssClient, ClientConfig, AuthMode, JssError,
+         SessionInfo, FrappeBoot, BootUser, BootUserInfo,
+         SidebarPages, NavbarSettings, FrequentLink,
+         UserInfo, ReportMeta, AppData,
+     };
+
+DESCRIPTION
+     librjss provides full access to a JSS (Frappe) server, featuring:
+
+        • Cookie-based session authentication and token-based API key/secret
+          authentication.
+        • Automatic CSRF token extraction from the /app dashboard.
+        • Configurable retry with exponential backoff.
+        • Typed builders for report execution, doctype CRUD, and file
+          upload/download.
+        • A rich error model that mirrors Frappe JSON error responses.
+        • Zero-framework – lightweight dependencies on reqwest, serde,
+          secrecy, and a few other small crates.
+        • Unique trace ID per client for distributed tracing.
+
+     This manual documents every public module, struct, enum, trait, and
+     method.
+
+INSTALLATION
+     Add the dependency to your Cargo.toml:
+
+         [dependencies]
+         librjss = { git = "https://github.com/mroczect/librjss.git" }
+
+     No feature flags are required for basic usage.
+
+QUICK START – CLI BINARY
+     A minimal CLI binary is included at src/bin/cli_auth.rs.
+
+     Build and run with environment variables:
+
+         export JSS_BASE_URL=https://app.juragansejati.biz.id
+         export JSS_EMAIL=user@example.com
+         export JSS_PASSWORD=password
+
+         cargo run --bin cli_auth
+
+     For token authentication, set JSS_TOKEN_API_KEY and
+     JSS_TOKEN_API_SECRET instead of email/password.
+
+PROJECT LAYOUT
+     src/
+       api/
+         auth/
+           endpoints.rs          AuthEndpoints trait – static URL builders
+           mod.rs
+         mod.rs
+       bin/
+         cli_auth.rs             Example CLI login application
+       client/
+         auth/
+           app_parser.rs         Fetch /app, extract CSRF & frappe.boot
+           http_helpers.rs       Auth header helpers, URL joining, backoff
+           login.rs              Credential-based login
+           logout.rs             Logout
+           session.rs            Session maintainer (ensure_session)
+           token.rs              Token-mode session setup
+           mod.rs
+         methods/
+           delete.rs             authenticated_delete
+           get.rs                authenticated_get
+           post.rs               authenticated_post
+           put.rs                authenticated_put
+           mod.rs
+         file.rs                 File upload / download
+         report.rs               Report execution builder
+         resource.rs             Doctype CRUD & listing builder
+         mod.rs                  RjssClient struct + core methods
+       handler/
+         config/
+           auth_mode.rs          AuthMode enum
+           client_config.rs      ClientConfig struct
+           validation.rs         Config validation
+           mod.rs
+         env.rs                  Re-exports for convenience
+         error.rs                JssError enum + helpers
+         types/
+           boot.rs               FrappeBoot, BootUser, permissions, reports
+           login.rs              Login API response types
+           session.rs            SessionInfo
+           user_info.rs          UserInfo
+           mod.rs
+         mod.rs
+       lib.rs                    Crate root, public re-exports
+     examples/
+       jss_mock_server.rs        Full offline JSS mock server
+     tests/                      Integration & unit tests
+       api_auth_tests.rs, client_tests.rs, env_tests.rs,
+       error_tests.rs, file_tests.rs, report_tests.rs,
+       resource_tests.rs, types_tests.rs
+
+CORE CONCEPTS
+
+   RjssClient
+       Central struct holding configuration, HTTP client, session,
+       credentials, and boot data.
+
+       Constructor:
+           RjssClient::new(config: ClientConfig) -> Result<Self, JssError>
+           Validates configuration, builds a reqwest client with a cookie
+           jar, timeout, and user-agent.
+
+       Public methods:
+
+       Authentication & session
+           authenticate(&mut self) -> Result<(), JssError>
+               Logs in using session or token (depending on AuthMode). In
+               session mode it stores credentials and calls login. Token
+               mode directly constructs a synthetic SessionInfo.
+
+           logout(&mut self) -> Result<(), JssError>
+               Only meaningful for AuthMode::Session. Sends a logout
+               request with the CSRF token, then clears session and
+               credentials.
+
+           ensure_session(&mut self) -> Result<(), JssError>
+               Checks whether the current session is still valid by
+               calling get_logged_user. If a 401 is returned the session
+               is discarded and, if credentials are available, a fresh
+               login is performed automatically.
+
+       Accessors
+           session_info(&self) -> Option<&SessionInfo>
+               Returns a reference to the current session data.
+
+           boot(&self) -> Option<&FrappeBoot>
+               Returns the boot data extracted from the /app page after
+               login. Contains user info, permissions, sidebar, etc.
+
+           base_url(&self) -> &Url
+               The base server URL in use.
+
+           trace_id(&self) -> &str
+               Unique UUID v4 identifier for tracing/logging.
+
+       Authenticated HTTP requests
+           authenticated_get(&self, path: &str) -> Result<String, JssError>
+           authenticated_post(&self, path: &str, body_json: &str) -> Result<String, JssError>
+           authenticated_put(&self, path: &str, body_json: &str) -> Result<String, JssError>
+           authenticated_delete(&self, path: &str) -> Result<String, JssError>
+               Each sends a GET/POST/PUT/DELETE request to the path joined
+               with base_url. They attach the appropriate authorization
+               header (token or CSRF) and handle retry with exponential
+               backoff.
+
+       File operations
+           upload_file(&self, file_name: &str, file_content: Vec<u8>,
+                        doctype: &str, docname: &str, fieldname: &str)
+               -> Result<String, JssError>
+               Uploads a file to /api/method/upload_file using
+               multipart/form-data. Returns the raw JSON response.
+
+           download_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>
+               Downloads a file from a relative URL (e.g., "/files/photo.png").
+               Returns raw bytes.
+
+           download_file_to_path(&self, file_url: &str, save_path: &Path)
+               -> Result<(), JssError>
+               Same as above, but writes directly to disk.
+
+       Report builder
+           report(&self, name: &str) -> ReportBuilder<'_>
+               Returns a builder for running a named Frappe report.
+
+       Doctype / resource builder
+           doctype(&self, name: &str) -> ResourceBuilder<'_>
+               Builder for fetching document lists.
+
+           get_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>
+               Fetches a single document by name.
+
+           create_doc(&self, doctype: &str, data: &impl Serialize) -> Result<String, JssError>
+               Creates a new document. `data` must be serializable to JSON.
+
+           update_doc(&self, doctype: &str, name: &str, data: &impl Serialize) -> Result<String, JssError>
+               Updates an existing document.
+
+           delete_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>
+               Deletes a document.
+
+           call_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>
+               Calls a whitelisted server method (e.g., frappe.email.send)
+               with optional arguments. The body is sent as a JSON POST.
+
+       Boot data accessors (convenience)
+           user_info_map(&self) -> Option<&HashMap<String, BootUserInfo>>
+           sidebar_pages(&self) -> Option<&SidebarPages>
+           navbar_settings(&self) -> Option<&NavbarSettings>
+           versions(&self) -> Option<&HashMap<String, String>>
+           lang_dict(&self) -> Option<&HashMap<String, String>>
+           frequent_links(&self) -> Option<&[FrequentLink]>
+           is_developer_mode(&self) -> bool
+           is_read_only(&self) -> bool
+
+           All return data taken from frappe.boot after login.
+           `is_developer_mode` returns true when `developer_mode != 0`.
+           `is_read_only` is taken directly from the `read_only` field.
+
+       Trait implementation
+           AuthEndpoints is implemented for RjssClient, allowing static URL
+           builders to be called through the type.
+
+   AuthMode (enum)
+       Authentication strategy selection.
+
+           pub enum AuthMode {
+               Session {
+                   email: secrecy::SecretString,
+                   password: secrecy::SecretString,
+               },
+               Token {
+                   api_key: String,
+                   api_secret: secrecy::SecretString,
+               },
+           }
+
+       • Session – logs in with email/password, manages session cookies,
+         and automatically extracts the CSRF token from /app.
+       • Token – sends an Authorization: token api_key:api_secret header
+         on every request. No explicit login or logout is required.
+
+   ClientConfig
+       Configuration container validated at client creation.
+
+           pub struct ClientConfig {
+               pub base_url: reqwest::Url,
+               pub auth_mode: AuthMode,
+               pub expected_sitename: Option<String>,
+               pub required_roles: Vec<String>,
+               pub timeout_secs: u64,          // default 30
+               pub max_retries: u32,           // default 3
+               pub user_agent: String,
+               pub insecure_ssl: bool,         // default false
+           }
+
+       Method:
+           validate(&self) -> Result<(), JssError>
+               Ensures:
+                 • HTTPS is used unless insecure_ssl = true.
+                 • In AuthMode::Session, email and password are not empty.
+
+   JssError
+       Comprehensive error type covering all failure modes.
+
+           pub enum JssError {
+               Config(String),
+               Validation(String),
+               Network(reqwest::Error),
+               Http { status: StatusCode, body: String },
+               ApiError {
+                   exc_type: String,
+                   message: String,
+                   status: StatusCode,
+               },
+               Auth(String),
+               Csrf(String),
+               Permission(String),
+               SitenameMismatch { expected: String, actual: String },
+               NotAuthenticated,
+               RateLimited { retry_after: Option<u64> },
+               Parse(String),
+               Expired,
+               Cancelled,
+               FileOperation(String),
+               Internal(String),
+           }
+
+       Helper methods:
+           from_api_response(status: StatusCode, body: &str) -> JssError
+               Parses a Frappe JSON error body. If exc_type is present,
+               returns ApiError; otherwise returns Http.
+
+           status_code(&self) -> StatusCode
+               Maps each variant to an appropriate HTTP status code, e.g.:
+                 Config/Validation/Internal → 500
+                 Network → 502
+                 Auth/NotAuthenticated/Expired → 401
+                 Csrf/Permission/SitenameMismatch → 403
+                 RateLimited → 429
+                 Parse/FileOperation → 500
+
+   SessionInfo
+       Session data stored after a successful login.
+
+           pub struct SessionInfo {
+               pub sid: secrecy::SecretString,
+               pub csrf_token: secrecy::SecretString,
+               pub full_name: Option<String>,
+               pub sitename: String,
+               pub roles: Vec<String>,
+           }
+
+       • sid – session ID from the login response.
+       • csrf_token – token extracted from the /app page.
+       • full_name – user’s full name (from boot or login response).
+       • sitename – site name from frappe.boot.
+       • roles – user role list.
+
+   FrappeBoot and related types
+       Data structure deserialized from the JavaScript `frappe.boot`
+       object on the /app page. All fields have defaults (mostly Option
+       or empty collections).
+
+       FrappeBoot (handler::types::boot)
+           pub struct FrappeBoot {
+               pub user: BootUser,
+               pub sitename: String,
+               pub csrf_token: String,
+               pub sysdefaults: SysDefaults,
+               pub app_logo_url: Option<String>,
+               pub home_page: Option<String>,
+               pub allow_modules: Vec<String>,
+               pub can_select: Vec<String>,
+               pub can_create: Vec<String>,
+               pub can_write: Vec<String>,
+               pub can_read: Vec<String>,
+               pub can_submit: Vec<String>,
+               pub can_cancel: Vec<String>,
+               pub can_delete: Vec<String>,
+               pub can_get_report: Vec<String>,
+               pub all_reports: HashMap<String, ReportMeta>,
+               pub module_wise_workspaces: HashMap<String, Vec<String>>,
+               pub dashboards: Vec<DashboardMeta>,
+               pub single_types: Vec<String>,
+               pub calendars: Vec<String>,
+               pub treeviews: Vec<String>,
+               pub module_app: HashMap<String, String>,
+               pub app_data: Vec<AppData>,
+               pub user_info: HashMap<String, BootUserInfo>,
+               pub sidebar_pages: SidebarPages,
+               pub navbar_settings: Option<NavbarSettings>,
+               pub versions: HashMap<String, String>,
+               pub lang_dict: HashMap<String, String>,
+               pub lang: Option<String>,
+               pub timezone_info: Option<serde_json::Value>,
+               pub page_info: HashMap<String, PageInfo>,
+               pub frequently_visited_links: Vec<FrequentLink>,
+               pub developer_mode: i32,
+               pub read_only: bool,
+               pub socketio_port: Option<u16>,
+               pub desk_settings: HashMap<String, serde_json::Value>,
+               pub desk_theme: Option<String>,
+           }
+
+       BootUser
+           pub struct BootUser {
+               pub name: String,
+               pub email: String,
+               pub full_name: String,
+               pub roles: Vec<String>,
+               pub allow_modules: Vec<String>,
+               pub user_type: String,
+               pub permissions: HashMap<String, Vec<String>>,
+               pub can_select: Vec<String>,
+               pub can_create: Vec<String>,
+               pub can_write: Vec<String>,
+               pub can_read: Vec<String>,
+               pub can_submit: Vec<String>,
+               pub can_cancel: Vec<String>,
+               pub can_delete: Vec<String>,
+               pub can_get_report: Vec<String>,
+               pub all_reports: HashMap<String, ReportMeta>,
+           }
+
+       SysDefaults
+           pub struct SysDefaults {
+               pub default_app: Option<String>,
+               pub time_zone: Option<String>,
+           }
+
+       ReportMeta
+           pub struct ReportMeta {
+               pub modified: String,
+               pub title: String,
+               pub ref_doctype: String,
+               pub report_type: String,
+           }
+
+       DashboardMeta { pub name: String }
+       AppData { pub app_name, app_title, app_route, app_logo_url: Value,
+                 modules, workspaces }
+
+       BootUserInfo
+           pub struct BootUserInfo {
+               pub fullname: String,
+               pub image: Option<String>,
+               pub name: String,
+               pub email: String,
+               pub time_zone: Option<String>,
+           }
+
+       SidebarPages
+           pub struct SidebarPages {
+               pub workspace_setup_completed: Option<i32>,
+               pub pages: Vec<SidebarPage>,
+               pub has_access: bool,
+               pub has_create_access: bool,
+           }
+
+       SidebarPage (numerous fields, see source)
+
+       NavbarSettings { pub settings_dropdown, help_dropdown: Vec<NavbarItem> }
+       NavbarItem { pub item_label, item_type, action, route, hidden,
+                    is_standard }
+       PageInfo { pub title: Option<String>, modified: Option<String> }
+       FrequentLink { pub route: String, count: i32 }
+
+   AuthEndpoints (trait)
+       Implemented by RjssClient. Provides static URL builders that can
+       be used without a client instance.
+
+           pub trait AuthEndpoints {
+               fn login_url(base: &Url) -> Result<Url, JssError>;
+               fn logout_url(base: &Url) -> Result<Url, JssError>;
+               fn csrf_token_url(base: &Url) -> Result<Url, JssError>;
+               fn get_logged_user_url(base: &Url) -> Result<Url, JssError>;
+               fn app_page_url(base: &Url) -> Result<Url, JssError>;
+           }
+
+       Each yields URLs such as:
+           /api/method/login
+           /api/method/logout
+           /api/method/frappe.auth.get_csrf_token
+           /api/method/frappe.auth.get_logged_user
+           /app
+
+   ReportBuilder
+       Built by RjssClient::report(). Allows chaining filters before
+       executing a report.
+
+           pub struct ReportBuilder<'a> { … }
+
+       Methods:
+           add_filter(mut self, field: &str, value: &str) -> Self
+               Adds a (field, value) filter. Can be chained.
+
+           async run_raw(&self) -> Result<String, JssError>
+               Runs the report and returns the raw JSON string.
+
+           async run<T: DeserializeOwned>(&self) -> Result<T, JssError>
+               Runs the report and deserializes directly into T.
+
+   ResourceBuilder
+       Built by RjssClient::doctype(). Builder for document listing with
+       filters, field selection, ordering, and pagination.
+
+           pub struct ResourceBuilder<'a> { … }
+
+       Methods:
+           filter(mut self, field: &str, operator: &str, value: &str) -> Self
+               Adds a filter condition, e.g., filter("status","=","Open").
+
+           fields(mut self, fields: Vec<&str>) -> Self
+               Specifies which fields to return (JSON array).
+
+           order_by(mut self, order: &str) -> Self
+               Order, e.g., "creation desc".
+
+           limit(mut self, limit: u32) -> Self
+               Page size.
+
+           limit_start(mut self, start: u32) -> Self
+               Starting index.
+
+           async execute_raw(&self) -> Result<String, JssError>
+               Executes and returns raw JSON.
+
+           async execute<T: DeserializeOwned>(&self) -> Result<T, JssError>
+               Executes and deserializes into T.
+
+           async all<T: DeserializeOwned>(&self) -> Result<Vec<T>, JssError>
+               Automatically paginates with a page size of 200, collecting
+               all records into a Vec<T>.
+
+   Additional public types
+       UserInfo
+           pub struct UserInfo { pub message: UserInfoMessage }
+           UserInfoMessage { pub name, email: Option<String>, roles: Vec<String> }
+           Used in get_logged_user responses.
+
+       LoginApiResponse, LoginApiMessage
+           (internal, not directly exported but used during login parsing.)
+
+USAGE EXAMPLES
+
+   1. Setup and session authentication:
+
+          use librjss::{RjssClient, ClientConfig, AuthMode};
+          use secrecy::SecretString;
+
+          let config = ClientConfig {
+              base_url: "https://app.example.com".parse().unwrap(),
+              auth_mode: AuthMode::Session {
+                  email: SecretString::new("user@example.com".into()),
+                  password: SecretString::new("secret".into()),
+              },
+              ..Default::default()
+          };
+          let mut client = RjssClient::new(config)?;
+          client.authenticate().await?;
+          println!("Logged in as: {:?}", client.session_info().unwrap().full_name);
+
+   2. Basic GET and POST:
+
+          let body = client.authenticated_get("/api/resource/ToDo").await?;
+          let resp = client.authenticated_post(
+              "/api/resource/ToDo",
+              r#"{"description":"test"}"#
+          ).await?;
+
+   3. File upload:
+
+          let image_bytes = std::fs::read("photo.png")?;
+          let result = client.upload_file(
+              "photo.png", image_bytes, "Customer", "CUST-001", "image"
+          ).await?;
+          println!("Upload response: {}", result);
+
+   4. File download:
+
+          let bytes = client.download_file("/files/photo.png").await?;
+          std::fs::write("local.png", bytes)?;
+          // or directly
+          client.download_file_to_path("/files/photo.png", Path::new("local.png")).await?;
+
+   5. Running a report:
+
+          #[derive(Deserialize)]
+          struct MyReportRow { /* ... */ }
+          let rows: Vec<MyReportRow> = client
+              .report("Sales Analytics")
+              .add_filter("from_date", "2026-01-01")
+              .add_filter("to_date", "2026-06-30")
+              .run()
+              .await?;
+
+   6. Doctype listing with filters:
+
+          let list: serde_json::Value = client
+              .doctype("ToDo")
+              .filter("status", "=", "Open")
+              .fields(vec!["name", "description", "date"])
+              .order_by("creation desc")
+              .limit(50)
+              .execute()
+              .await?;
+
+          // Fetch all records
+          let all: Vec<ToDo> = client
+              .doctype("ToDo")
+              .filter("status", "=", "Cancelled")
+              .all()
+              .await?;
+
+   7. Single document CRUD:
+
+          let doc = client.get_doc("Customer", "CUST-001").await?;
+
+          #[derive(Serialize)]
+          struct NewCustomer { customer_name: String, customer_group: String }
+          let new_cust = NewCustomer { ... };
+          let created = client.create_doc("Customer", &new_cust).await?;
+
+          let updated = client.update_doc("Customer", "CUST-001", &modification).await?;
+          let deleted = client.delete_doc("Customer", "OLD-CUST").await?;
+
+   8. Calling a server method:
+
+          use std::collections::HashMap;
+          let mut args = HashMap::new();
+          args.insert("doctype".into(), "Sales Invoice".into());
+          args.insert("docname".into(), "SINV-0001".into());
+          let result = client.call_method("frappe.email.send", Some(args)).await?;
+
+   9. Error handling:
+
+          match client.authenticated_get("/api/resource/ToDo").await {
+              Err(JssError::ApiError { exc_type, message, status }) => {
+                  eprintln!("[{exc_type}] {message} (HTTP {status})");
+              }
+              Err(JssError::RateLimited { retry_after }) => {
+                  let secs = retry_after.unwrap_or(5);
+                  tokio::time::sleep(Duration::from_secs(secs)).await;
+                  // retry
+              }
+              Err(e) => {
+                  eprintln!("Other error: {}", e);
+                  let status_code = e.status_code();
+                  // ...
+              }
+              Ok(data) => { /* process data */ }
+          }
+
+   10. Accessing boot data:
+
+          if let Some(boot) = client.boot() {
+              println!("Site: {}", boot.sitename);
+              println!("Roles: {:?}", boot.user.roles);
+              for (doctype, perms) in &boot.user.permissions {
+                  println!("{} can: {:?}", doctype, perms);
+              }
+              if client.is_developer_mode() {
+                  println!("Developer mode active");
+              }
+          }
+
+CONFIGURATION (ENVIRONMENT VARIABLES FOR CLI)
+     The following variables are used by the cli_auth binary and can be
+     adopted in your own applications:
+
+     JSS_BASE_URL            Required. Base URL of the JSS instance.
+     JSS_EMAIL               Email for session auth.
+     JSS_PASSWORD            Password for session auth.
+     JSS_TOKEN_API_KEY       API key for token auth.
+     JSS_TOKEN_API_SECRET    API secret for token auth.
+     JSS_EXPECTED_SITENAME   Optional. Expected site name; login fails if
+                             the boot sitename does not match.
+     JSS_REQUIRED_ROLES      Optional. Comma-separated required roles.
+     JSS_TIMEOUT_SECS        Request timeout in seconds (default 30).
+     JSS_MAX_RETRIES         Maximum retry attempts (default 3).
+     JSS_USER_AGENT          Custom User-Agent header.
+     JSS_INSECURE_SSL        Set "true" to accept invalid TLS certificates
+                             (e.g., self-signed).
+
+MOCK SERVER FOR DEVELOPMENT
+     A full mock server is available at examples/jss_mock_server.rs. It
+     replicates the behaviour of a real JSS server:
+
+         • POST /api/method/login             → sets cookie + JSON
+         • GET  /app                          → HTML with frappe.boot
+         • GET  /api/method/frappe.auth.get_logged_user
+         • POST /api/method/logout
+         • GET  /api/method/frappe.auth.get_csrf_token (417)
+
+     Start it with:
+
+         cargo run --example jss_mock_server
+
+     Then point the client to http://127.0.0.1:8080 and set
+     JSS_INSECURE_SSL=true.
+
+TESTING
+     Unit tests (no server required):
+
+         cargo test --lib
+
+     Integration tests require the mock server to be running (see above).
+     Once the server is up:
+
+         cargo test --test client_tests
+         cargo test --test file_tests
+         cargo test --test report_tests
+         cargo test --test resource_tests
+
+     Or run everything:
+
+         cargo test --workspace
+
+     A fixture real_app_page.html is used in app_parser unit tests.
+
+CI PIPELINE
+     The file .github/workflows/ci.yml runs on every push/PR to master:
+
+         • Format check (rustfmt)
+         • Lint (clippy -D warnings)
+         • cargo check --workspace
+         • Unit tests (cargo test --lib)
+         • Start mock server → integration tests
+         • Release build
+         • Upload cli_auth artifact
+
+LICENSE
+     MIT License – see LICENSE file.
+
+     Copyright (c) 2026 mroczect <mroczect@proton.me>
+
+librjss 2.0.0                  January 2026                       librjss(1)
