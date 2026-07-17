@@ -7,7 +7,6 @@ on:
       - 'docs/librjss.3'
   workflow_dispatch:
 
-# Beri izin yang dibutuhkan
 permissions:
   contents: read
   pages: write
@@ -27,8 +26,19 @@ jobs:
       - name: Install mandoc
         run: sudo apt-get update && sudo apt-get install -y mandoc
 
-      - name: Generate HTML from manpage
-        run: mandoc -Thtml docs/librjss.3 > librjss.html
+      - name: Buat direktori output
+        run: mkdir -p _site
+
+      - name: Generate HTML dari manpage
+        run: mandoc -Thtml docs/librjss.3 > _site/index.html
+
+      - name: Tambahkan CSS biar tampilan lebih rapi (opsional)
+        run: |
+          cat >> _site/index.html << 'EOF'
+          <style>
+            body { font-family: monospace; max-width: 80ch; margin: 2em auto; padding: 0 1em; line-height: 1.5; }
+          </style>
+          EOF
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
@@ -36,10 +46,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'              # upload semua file, librjss.html akan di-root
-          # Jika hanya ingin file tertentu:
-          # path: 'librjss.html'
+          path: './_site'          # hanya folder _site yang diunggah
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy ke GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
