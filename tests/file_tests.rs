@@ -18,7 +18,7 @@ async fn setup_client(server: &MockServer) -> RjssClient {
         auth_mode: session_auth("user", "pass"),
         expected_sitename: None,
         required_roles: vec![],
-        timeout_secs: 5,
+        timeout_secs: 1,              // <-- lebih pendek supaya cepat gagal kalau salah
         max_retries: 1,
         user_agent: "test".into(),
         insecure_ssl: true,
@@ -39,21 +39,22 @@ async fn mock_login_and_app(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/app"))
         .respond_with(ResponseTemplate::new(200).set_body_string(
-            r#"
-            <html>
+            r#"<html>
             <script>frappe.csrf_token = "mock_csrf_token";</script>
             <script>
             frappe.boot = {
-                "user": {
-                    "name": "test@example.com",
-                    "full_name": "Test User",
-                    "roles": ["System Manager"]
-                },
-                "sitename": "testsite"
+                "user": { "name": "t","full_name":"T","roles":["R"],"can_read":["ToDo"] },
+                "sitename": "t","csrf_token": "mock_csrf_token",
+                "user_info": {},
+                "sidebar_pages": {"pages":[],"has_access":false,"has_create_access":false},
+                "navbar_settings": null,
+                "versions": {"frappe":"16"},
+                "lang_dict": {},"lang":"en",
+                "page_info": {},
+                "frequently_visited_links": [],
+                "developer_mode": 0, "read_only": false, "desk_theme": "Light"
             };
-            </script>
-            </html>
-            "#,
+            </script></html>"#,
         ))
         .mount(server)
         .await;
@@ -64,22 +65,17 @@ async fn test_upload_file() {
     let server = MockServer::start().await;
     mock_login_and_app(&server).await;
 
+    // Mock untuk endpoint upload – cukup cocokkan method POST dan path
     Mock::given(method("POST"))
         .and(path("/api/method/upload_file"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_string(r#"{"file_url": "/files/test.png"}"#),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"file_url":"/files/test.png"}"#))
         .mount(&server)
         .await;
 
     let mut client = setup_client(&server).await;
     client.authenticate().await.unwrap();
-    let test_resp = client.authenticated_get("/api/method/upload_file").await;
-    println!("GET test: {:?}", test_resp);
 
-    let upload_url = format!("{}/api/method/upload_file", client.base_url());
-    println!("Uploading to: {}", upload_url);
-
+    // Hapus panggilan authenticated_get yang tidak perlu – itu yang bikin lambat
     let result = client
         .upload_file("test.png", vec![1, 2, 3], "ToDo", "doc123", "image")
         .await
