@@ -14,6 +14,39 @@ fn test_error_display() {
         actual: "b".into(),
     };
     assert!(format!("{}", e).contains("Sitename mismatch"));
+
+    let e = JssError::RateLimited {
+        retry_after: Some(30),
+    };
+    assert!(format!("{}", e).contains("retry after"));
+}
+
+#[test]
+fn test_error_status_code() {
+    assert_eq!(
+        JssError::Config("".into()).status_code(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    assert_eq!(
+        JssError::Auth("".into()).status_code(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        JssError::NotAuthenticated.status_code(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        JssError::RateLimited { retry_after: None }.status_code(),
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        JssError::Parse("".into()).status_code(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
+    assert_eq!(
+        JssError::Internal("".into()).status_code(),
+        StatusCode::INTERNAL_SERVER_ERROR
+    );
 }
 
 #[tokio::test]
@@ -22,10 +55,7 @@ async fn test_network_from_reqwest() {
     assert!(result.is_err());
     let reqwest_err = result.unwrap_err();
     let e: JssError = reqwest_err.into();
-    match e {
-        JssError::Network(_) => {}
-        _ => panic!("expected Network variant"),
-    }
+    assert!(matches!(e, JssError::Network(_)));
 }
 
 #[test]
@@ -41,6 +71,18 @@ fn test_from_api_response_valid_frappe_error() {
             assert_eq!(exc_type, "ValidationError");
             assert_eq!(message, "Invalid data");
             assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        _ => panic!("Expected ApiError"),
+    }
+}
+
+#[test]
+fn test_from_api_response_with_server_messages() {
+    let body = r#"{"_server_messages":"[\"Error message\"]"}"#;
+    let err = JssError::from_api_response(StatusCode::INTERNAL_SERVER_ERROR, body);
+    match err {
+        JssError::ApiError { message, .. } => {
+            assert!(message.contains("Error message"));
         }
         _ => panic!("Expected ApiError"),
     }
