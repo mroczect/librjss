@@ -43,10 +43,9 @@ pub(crate) async fn authenticated_delete(
                 .map_err(|e| backoff::Error::transient(JssError::Network(e)))?;
             let status = resp.status();
             if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
-                Err(backoff::Error::transient(JssError::Http {
-                    status,
-                    body: String::new(),
-                }))
+                let body = resp.text().await.unwrap_or_default();
+                let error = JssError::from_api_response(status, &body);
+                Err(backoff::Error::transient(error))
             } else if status == StatusCode::UNAUTHORIZED {
                 Err(backoff::Error::permanent(JssError::Auth(
                     "Unauthorized".into(),
