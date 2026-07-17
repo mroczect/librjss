@@ -8,7 +8,7 @@ use reqwest::StatusCode;
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use std::time::Duration;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 impl AuthEndpoints for RjssClient {}
 
@@ -56,6 +56,7 @@ impl RjssClient {
 
         let status = resp.status();
         if status == StatusCode::TOO_MANY_REQUESTS {
+            error!(trace_id = self.trace_id, "Rate limited");
             return Err(JuraganError::RateLimited);
         }
         if status != StatusCode::OK {
@@ -65,14 +66,40 @@ impl RjssClient {
         }
 
         let body_text = resp.text().await?;
+        error!(trace_id = self.trace_id, %body_text, "Raw login response body");
         debug!(
             trace_id = self.trace_id,
             body_hash = format!("{:x}", Sha256::digest(body_text.as_bytes())),
             "Login response received"
         );
+        let v: serde_json::Value = serde_json::from_str(&body_text).map_err(|e| {
+            error!(
+                trace_id = self.trace_id,
+                "Login response not valid JSON: {}", e
+            );
+            JuraganError::Parse(format!("Login response not valid JSON: {e}"))
+        })?;
 
-        let login_resp: LoginApiResponse = serde_json::from_str(&body_text)
-            .map_err(|e| JuraganError::Parse(format!("Failed to parse login response: {e}")))?;
+        let login_resp = if v["message"].as_str() == Some("Logged In") {
+            warn!(
+                trace_id = self.trace_id,
+                "Login response has string message 'Logged In', treating as success"
+            );
+            LoginApiResponse {
+                message: crate::handler::types::LoginApiMessage {
+                    sid: String::new(),
+                    full_name: v["full_name"].as_str().map(|s| s.to_string()),
+                },
+            }
+        } else {
+            serde_json::from_value::<LoginApiResponse>(v).map_err(|e| {
+                error!(
+                    trace_id = self.trace_id,
+                    "Failed to parse login response: {}", e
+                );
+                JuraganError::Parse(format!("Failed to parse login response: {e}"))
+            })?
+        };
 
         let sid = SecretString::new(Box::from(login_resp.message.sid));
         let csrf_token = self.obtain_csrf_token().await?;
@@ -81,6 +108,7 @@ impl RjssClient {
         if let Some(expected_sitename) = &self.config.expected_sitename {
             let actual = self.fetch_sitename_from_app().await?;
             if expected_sitename != &actual {
+                error!(trace_id = self.trace_id, expected = %expected_sitename, actual = %actual, "Sitename mismatch");
                 return Err(JuraganError::SitenameMismatch {
                     expected: expected_sitename.clone(),
                     actual,
@@ -97,6 +125,7 @@ impl RjssClient {
                 .iter()
                 .any(|r| user_roles.contains(r));
             if !has_role {
+                error!(trace_id = self.trace_id, ?user_roles, required = ?self.config.required_roles, "Missing required roles");
                 return Err(JuraganError::Permission(format!(
                     "Missing one of required roles: {:?}",
                     self.config.required_roles
@@ -119,13 +148,20 @@ impl RjssClient {
     async fn obtain_csrf_token(&self) -> Result<SecretString, JuraganError> {
         let csrf_url = Self::csrf_token_url(&self.config.base_url);
         let resp = self.http.get(csrf_url).send().await?;
-        if resp.status().is_success() {
-            let body = resp.text().await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+
+        error!(trace_id = self.trace_id, %status, %body, "Raw CSRF token response");
+        if status.is_success() {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
                 if let Some(token) = json.get("message").and_then(|v| v.as_str()) {
                     return Ok(SecretString::new(Box::from(token.to_owned())));
                 }
             }
+            warn!(
+                trace_id = self.trace_id,
+                "CSRF response did not contain expected 'message' field"
+            );
         }
         Err(JuraganError::Csrf("Unable to obtain CSRF token".into()))
     }
@@ -133,10 +169,13 @@ impl RjssClient {
     async fn fetch_user_info(&self) -> Result<crate::handler::types::UserInfo, JuraganError> {
         let url = Self::get_logged_user_url(&self.config.base_url);
         let resp = self.http.get(url).send().await?;
-        if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await?;
+
+        error!(trace_id = self.trace_id, %status, %body, "Raw user info response");
+        if !status.is_success() {
             return Err(JuraganError::Auth("Failed to verify session".into()));
         }
-        let body = resp.text().await?;
         serde_json::from_str::<crate::handler::types::UserInfo>(&body)
             .map_err(|e| JuraganError::Parse(format!("Failed to parse user info: {e}")))
     }
@@ -150,6 +189,7 @@ impl RjssClient {
         if let Some(caps) = re.captures(&body) {
             Ok(caps[1].to_string())
         } else {
+            error!(trace_id = self.trace_id, "Sitename not found in /app");
             Err(JuraganError::Parse("Sitename not found in /app".into()))
         }
     }
@@ -176,6 +216,7 @@ impl RjssClient {
             Ok(())
         } else {
             let body = resp.text().await.unwrap_or_default();
+            error!(trace_id = self.trace_id, %status, %body, "Logout failed");
             Err(JuraganError::Http { status, body })
         }
     }
@@ -444,6 +485,7 @@ impl RjssClient {
                 let url = Self::get_logged_user_url(&self.config.base_url);
                 let resp = self.http.get(url).send().await?;
                 if resp.status() == StatusCode::UNAUTHORIZED {
+                    warn!(trace_id = self.trace_id, "Session expired, will re-login");
                     self.session = None;
                 } else {
                     return Ok(());
