@@ -4,7 +4,6 @@ use crate::handler::error::JuraganError;
 use secrecy::ExposeSecret;
 
 impl ClientConfig {
-    /// Validates the configuration and returns an error if something is wrong.
     pub fn validate(&self) -> Result<(), JuraganError> {
         if self.base_url.scheme() != "https" && !self.insecure_ssl {
             return Err(JuraganError::Config(
