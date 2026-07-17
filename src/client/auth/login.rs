@@ -37,8 +37,9 @@ pub(crate) async fn login_with_credentials(
         warn!(trace_id = client.trace_id, "Rate limited");
         return Err(JssError::RateLimited { retry_after });
     }
+
     if status != reqwest::StatusCode::OK {
-        let body = resp.text().await.unwrap_or_default();
+        let _body = resp.text().await.unwrap_or_default();
         warn!(trace_id = client.trace_id, %status, "Login failed");
         return Err(JssError::Auth(format!("Login failed: HTTP {status}")));
     }

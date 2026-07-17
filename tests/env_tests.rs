@@ -1,4 +1,4 @@
-use librjss::handler::env::{AuthMode, ClientConfig};
+use librjss::handler::config::{AuthMode, ClientConfig};
 use secrecy::SecretString;
 use url::Url;
 

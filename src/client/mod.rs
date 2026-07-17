@@ -147,7 +147,7 @@ impl RjssClient {
     pub fn is_developer_mode(&self) -> bool {
         self.boot
             .as_ref()
-            .map(|b| b.developer_mode)
+            .map(|b| b.developer_mode != 0)
             .unwrap_or(false)
     }
 

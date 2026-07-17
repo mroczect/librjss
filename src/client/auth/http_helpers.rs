@@ -47,6 +47,7 @@ pub(crate) fn backoff_config(client: &RjssClient) -> ExponentialBackoff {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn extract_retry_after(response: &Response) -> Option<u64> {
     response
         .headers()

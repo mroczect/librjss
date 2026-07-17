@@ -2,7 +2,7 @@ use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
 use crate::handler::error::JssError;
 use secrecy::ExposeSecret;
-use tracing::{debug, info, instrument, warn};
+use tracing::{info, instrument, warn};
 
 #[instrument(skip(client), fields(trace_id = client.trace_id))]
 pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JssError> {

@@ -39,21 +39,32 @@ async fn mock_login_and_app(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/app"))
         .respond_with(ResponseTemplate::new(200).set_body_string(
-            r#"
-            <html>
+            r#"<html>
             <script>frappe.csrf_token = "mock_csrf_token";</script>
             <script>
             frappe.boot = {
                 "user": {
                     "name": "test@example.com",
                     "full_name": "Test User",
-                    "roles": ["System Manager"]
+                    "roles": ["System Manager"],
+                    "can_read": ["ToDo"]
                 },
-                "sitename": "testsite"
+                "sitename": "testsite",
+                "csrf_token": "mock_csrf_token",
+                "user_info": {},
+                "sidebar_pages": {"pages": [], "has_access": false, "has_create_access": false},
+                "navbar_settings": null,
+                "versions": {"frappe": "16.0.0"},
+                "lang_dict": {},
+                "lang": "en",
+                "page_info": {},
+                "frequently_visited_links": [],
+                "developer_mode": 0,
+                "read_only": false,
+                "desk_theme": "Light"
             };
             </script>
-            </html>
-            "#,
+            </html>"#,
         ))
         .mount(server)
         .await;
