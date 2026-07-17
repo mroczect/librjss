@@ -1,5 +1,5 @@
-use librjss::handler::config::{AuthMode, ClientConfig};
 use librjss::RjssClient;
+use librjss::handler::config::{AuthMode, ClientConfig};
 use secrecy::SecretString;
 use std::env;
 use tracing::info;
