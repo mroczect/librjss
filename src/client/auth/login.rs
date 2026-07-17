@@ -1,6 +1,5 @@
 use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
-use crate::handler::config::AuthMode;
 use crate::handler::error::JuraganError;
 use crate::handler::types::login::{LoginApiMessage, LoginApiResponse};
 use crate::handler::types::session::SessionInfo;
@@ -71,7 +70,11 @@ pub(crate) async fn login_with_credentials(
 
     let user = &boot_data.user;
     let roles = user.roles.clone();
-    let full_name = user.full_name.clone().or(login_resp.message.full_name);
+    let full_name = if user.full_name.is_empty() {
+        login_resp.message.full_name
+    } else {
+        Some(user.full_name.clone())
+    };
     let sitename = boot_data.sitename.clone();
 
     if let Some(expected) = &client.config.expected_sitename {
