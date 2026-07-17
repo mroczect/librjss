@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    table.head, table.foot { width: 100%; }
+    td.head-rtitle, td.foot-os { text-align: right; }
+    td.head-vol { text-align: center; }
+    .Nd, .Bf, .Op { display: inline; }
+    .Pa, .Ad { font-style: italic; }
+    .Ms { font-weight: bold; }
+    .Bl-diag > dt { font-weight: bold; }
+    code.Nm, .Fl, .Cm, .Ic, code.In, .Fd, .Fn, .Cd { font-weight: bold;
+      font-family: inherit; }
+  </style>
+  <title>LIBRJSS(3)</title>
+</head>
+<body>
+<table class="head">
+  <tr>
+    <td class="head-ltitle">LIBRJSS(3)</td>
+    <td class="head-vol">Library Functions Manual</td>
+    <td class="head-rtitle">LIBRJSS(3)</td>
+  </tr>
+</table>
+<div class="manual-text">
+<section class="Sh">
+<h1 class="Sh" id="NAME"><a class="permalink" href="#NAME">NAME</a></h1>
+<p class="Pp">librjss - Robust async Rust client for Juragan Subsystem (JSS) /
+    Frappe / ERPNext APIs</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SYNOPSIS"><a class="permalink" href="#SYNOPSIS">SYNOPSIS</a></h1>
+<section class="Ss">
+<h2 class="Ss" id="Cargo_dependency"><a class="permalink" href="#Cargo_dependency">Cargo
+  dependency</a></h2>
+<pre><b>[dependencies]</b>
+<b>librjss = { git = &quot;https://github.com/mroczect/librjss.git&quot; }</b></pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="Import_in_Rust_code"><a class="permalink" href="#Import_in_Rust_code">Import
+  in Rust code</a></h2>
+<pre><b>use librjss::{</b>
+<br/>
+    <b>RjssClient, ClientConfig, AuthMode, JssError,</b>
+<br/>
+    <b>SessionInfo, FrappeBoot, BootUser, BootUserInfo,</b>
+<br/>
+    <b>SidebarPages, NavbarSettings, FrequentLink,</b>
+<br/>
+    <b>UserInfo, ReportMeta, AppData,</b>
+<b>};</b></pre>
+</section>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="DESCRIPTION"><a class="permalink" href="#DESCRIPTION">DESCRIPTION</a></h1>
+<p class="Pp"><b>librjss</b> provides full access to a JSS (Frappe/ERPNext)
+    server. It supports:</p>
+<dl class="Bl-tag">
+  <dt>&#x2022;</dt>
+  <dd>Cookie-based session authentication and token-based API key/secret
+      authentication.</dd>
+  <dt>&#x2022;</dt>
+  <dd>Automatic CSRF token extraction from the <b>/app</b> dashboard.</dd>
+  <dt>&#x2022;</dt>
+  <dd>Configurable retry with exponential backoff.</dd>
+  <dt>&#x2022;</dt>
+  <dd>Typed builders for report execution, doctype CRUD, and file
+      upload/download.</dd>
+  <dt>&#x2022;</dt>
+  <dd>A rich error model mirroring Frappe JSON error responses.</dd>
+  <dt>&#x2022;</dt>
+  <dd>Zero-framework &#x2013; lightweight dependencies on <b>reqwest</b>,
+      <b>serde</b>, <b>secrecy</b>, and a few other small crates.</dd>
+  <dt>&#x2022;</dt>
+  <dd>Unique trace ID per client for distributed tracing.</dd>
+</dl>
+<p class="Pp">This manual documents every public module, struct, enum, trait,
+    and method.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="CORE_CONCEPTS"><a class="permalink" href="#CORE_CONCEPTS">CORE
+  CONCEPTS</a></h1>
+<section class="Ss">
+<h2 class="Ss" id="RjssClient"><a class="permalink" href="#RjssClient">RjssClient</a></h2>
+<p class="Pp">Central struct holding configuration, HTTP client, session,
+    credentials, and boot data.</p>
+<p class="Pp"><b>Constructor:</b></p>
+<div class="Bd-indent">
+<p class="Pp"><b>RjssClient::new(config: ClientConfig) -&gt; Result&lt;Self,
+    JssError&gt;</b>
+  <br/>
+  Validates configuration, builds a reqwest client with a cookie jar, timeout,
+    and user-agent.</p>
+</div>
+<p class="Pp"><b>Authentication &amp; session methods:</b></p>
+<dl class="Bl-tag">
+  <dt id="authenticate(&amp;mut"><a class="permalink" href="#authenticate(&amp;mut"><b>authenticate(&amp;mut
+    self) -&gt; Result&lt;(), JssError&gt;</b></a></dt>
+  <dd>Logs in using session or token (depending on <b>AuthMode</b>). In session
+      mode it stores credentials and calls login. Token mode directly constructs
+      a synthetic <b>SessionInfo</b>.</dd>
+  <dt id="logout(&amp;mut"><a class="permalink" href="#logout(&amp;mut"><b>logout(&amp;mut
+    self) -&gt; Result&lt;(), JssError&gt;</b></a></dt>
+  <dd>Only meaningful for <b>AuthMode::Session</b>. Sends a logout request with
+      the CSRF token, then clears session and credentials.</dd>
+  <dt id="ensure_session(&amp;mut"><a class="permalink" href="#ensure_session(&amp;mut"><b>ensure_session(&amp;mut
+    self) -&gt; Result&lt;(), JssError&gt;</b></a></dt>
+  <dd>Checks whether the current session is still valid by calling
+      <b>get_logged_user</b>. If a 401 is returned the session is discarded and,
+      if credentials are available, a fresh login is performed
+    automatically.</dd>
+</dl>
+<p class="Pp"><b>Accessors:</b></p>
+<dl class="Bl-tag">
+  <dt id="session_info(&amp;self)"><a class="permalink" href="#session_info(&amp;self)"><b>session_info(&amp;self)
+    -&gt; Option&lt;&amp;SessionInfo&gt;</b></a></dt>
+  <dd>Returns a reference to the current session data.</dd>
+  <dt id="boot(&amp;self)"><a class="permalink" href="#boot(&amp;self)"><b>boot(&amp;self)
+    -&gt; Option&lt;&amp;FrappeBoot&gt;</b></a></dt>
+  <dd>Returns the boot data extracted from the /app page after login. Contains
+      user info, permissions, sidebar, etc.</dd>
+  <dt id="base_url(&amp;self)"><a class="permalink" href="#base_url(&amp;self)"><b>base_url(&amp;self)
+    -&gt; &amp;Url</b></a></dt>
+  <dd>The base server URL in use.</dd>
+  <dt id="trace_id(&amp;self)"><a class="permalink" href="#trace_id(&amp;self)"><b>trace_id(&amp;self)
+    -&gt; &amp;str</b></a></dt>
+  <dd>Unique UUID v4 identifier for tracing/logging.</dd>
+</dl>
+<p class="Pp"><b>Authenticated HTTP requests:</b></p>
+<dl class="Bl-tag">
+  <dt id="authenticated_get(&amp;self,"><a class="permalink" href="#authenticated_get(&amp;self,"><b>authenticated_get(&amp;self,
+    path: &amp;str) -&gt; Result&lt;String, JssError&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="authenticated_post(&amp;self,"><a class="permalink" href="#authenticated_post(&amp;self,"><b>authenticated_post(&amp;self,
+    path: &amp;str, body_json: &amp;str) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="authenticated_put(&amp;self,"><a class="permalink" href="#authenticated_put(&amp;self,"><b>authenticated_put(&amp;self,
+    path: &amp;str, body_json: &amp;str) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="authenticated_delete(&amp;self,"><a class="permalink" href="#authenticated_delete(&amp;self,"><b>authenticated_delete(&amp;self,
+    path: &amp;str) -&gt; Result&lt;String, JssError&gt;</b></a></dt>
+  <dd>Each sends the corresponding HTTP request to the path joined with
+      base_url. They attach the appropriate authorization header (token or CSRF)
+      and handle retry with exponential backoff.</dd>
+</dl>
+<p class="Pp"><b>File operations:</b></p>
+<dl class="Bl-tag">
+  <dt id="upload_file(&amp;self,"><a class="permalink" href="#upload_file(&amp;self,"><b>upload_file(&amp;self,
+    file_name: &amp;str, file_content: Vec&lt;u8&gt;, doctype: &amp;str,
+    docname: &amp;str, fieldname: &amp;str) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd>Uploads a file to <b>/api/method/upload_file</b> using
+      multipart/form-data. Returns the raw JSON response.</dd>
+  <dt id="download_file(&amp;self,"><a class="permalink" href="#download_file(&amp;self,"><b>download_file(&amp;self,
+    file_url: &amp;str) -&gt; Result&lt;Vec&lt;u8&gt;, JssError&gt;</b></a></dt>
+  <dd>Downloads a file from a relative URL (e.g., &quot;/files/photo.png&quot;).
+      Returns raw bytes.</dd>
+  <dt id="download_file_to_path(&amp;self,"><a class="permalink" href="#download_file_to_path(&amp;self,"><b>download_file_to_path(&amp;self,
+    file_url: &amp;str, save_path: &amp;Path) -&gt; Result&lt;(),
+    JssError&gt;</b></a></dt>
+  <dd>Same as above, but writes directly to disk.</dd>
+</dl>
+<p class="Pp"><b>Report builder:</b></p>
+<dl class="Bl-tag">
+  <dt id="report(&amp;self,"><a class="permalink" href="#report(&amp;self,"><b>report(&amp;self,
+    name: &amp;str) -&gt; ReportBuilder</b></a></dt>
+  <dd>Returns a builder for running a named Frappe report.</dd>
+</dl>
+<p class="Pp"><b>Doctype / resource builder:</b></p>
+<dl class="Bl-tag">
+  <dt id="doctype(&amp;self,"><a class="permalink" href="#doctype(&amp;self,"><b>doctype(&amp;self,
+    name: &amp;str) -&gt; ResourceBuilder</b></a></dt>
+  <dd>Builder for fetching document lists.</dd>
+  <dt id="get_doc(&amp;self,"><a class="permalink" href="#get_doc(&amp;self,"><b>get_doc(&amp;self,
+    doctype: &amp;str, name: &amp;str) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd>Fetches a single document by name.</dd>
+  <dt id="create_doc(&amp;self,"><a class="permalink" href="#create_doc(&amp;self,"><b>create_doc(&amp;self,
+    doctype: &amp;str, data: &amp;impl Serialize) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd>Creates a new document. <i>data</i> must implement <b>Serialize</b>.</dd>
+  <dt id="update_doc(&amp;self,"><a class="permalink" href="#update_doc(&amp;self,"><b>update_doc(&amp;self,
+    doctype: &amp;str, name: &amp;str, data: &amp;impl Serialize) -&gt;
+    Result&lt;String, JssError&gt;</b></a></dt>
+  <dd>Updates an existing document.</dd>
+  <dt id="delete_doc(&amp;self,"><a class="permalink" href="#delete_doc(&amp;self,"><b>delete_doc(&amp;self,
+    doctype: &amp;str, name: &amp;str) -&gt; Result&lt;String,
+    JssError&gt;</b></a></dt>
+  <dd>Deletes a document.</dd>
+  <dt id="call_method(&amp;self,"><a class="permalink" href="#call_method(&amp;self,"><b>call_method(&amp;self,
+    method: &amp;str, args: Option&lt;HashMap&lt;String, String&gt;&gt;) -&gt;
+    Result&lt;String, JssError&gt;</b></a></dt>
+  <dd>Calls a whitelisted server method (e.g., <b>frappe.email.send</b>) with
+      optional arguments. The body is sent as a JSON POST.</dd>
+</dl>
+<p class="Pp"><b>Boot data convenience accessors:</b></p>
+<dl class="Bl-tag">
+  <dt id="user_info_map(&amp;self)"><a class="permalink" href="#user_info_map(&amp;self)"><b>user_info_map(&amp;self)
+    -&gt; Option&lt;&amp;HashMap&lt;String, BootUserInfo&gt;&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="sidebar_pages(&amp;self)"><a class="permalink" href="#sidebar_pages(&amp;self)"><b>sidebar_pages(&amp;self)
+    -&gt; Option&lt;&amp;SidebarPages&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="navbar_settings(&amp;self)"><a class="permalink" href="#navbar_settings(&amp;self)"><b>navbar_settings(&amp;self)
+    -&gt; Option&lt;&amp;NavbarSettings&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="versions(&amp;self)"><a class="permalink" href="#versions(&amp;self)"><b>versions(&amp;self)
+    -&gt; Option&lt;&amp;HashMap&lt;String, String&gt;&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="lang_dict(&amp;self)"><a class="permalink" href="#lang_dict(&amp;self)"><b>lang_dict(&amp;self)
+    -&gt; Option&lt;&amp;HashMap&lt;String, String&gt;&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="frequent_links(&amp;self)"><a class="permalink" href="#frequent_links(&amp;self)"><b>frequent_links(&amp;self)
+    -&gt; Option&lt;&amp;[FrequentLink]&gt;</b></a></dt>
+  <dd></dd>
+  <dt id="is_developer_mode(&amp;self)"><a class="permalink" href="#is_developer_mode(&amp;self)"><b>is_developer_mode(&amp;self)
+    -&gt; bool</b></a></dt>
+  <dd>Returns true when <b>developer_mode != 0</b> in the boot data.</dd>
+  <dt id="is_read_only(&amp;self)"><a class="permalink" href="#is_read_only(&amp;self)"><b>is_read_only(&amp;self)
+    -&gt; bool</b></a></dt>
+  <dd>Directly from the <b>read_only</b> field in boot data.</dd>
+</dl>
+<p class="Pp"><b>Trait implementation:</b> <b>AuthEndpoints</b> is implemented
+    for <b>RjssClient</b>, allowing static URL builders to be called through the
+    type.</p>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="AuthMode_(enum)"><a class="permalink" href="#AuthMode_(enum)">AuthMode
+  (enum)</a></h2>
+<p class="Pp">Authentication strategy selection.</p>
+<p class="Pp"></p>
+<pre><b>pub enum AuthMode {</b>
+<br/>
+    <b>Session {</b>
+<br/>
+        <b>email: secrecy::SecretString,</b>
+<br/>
+        <b>password: secrecy::SecretString,</b>
+<br/>
+    <b>},</b>
+<br/>
+    <b>Token {</b>
+<br/>
+        <b>api_key: String,</b>
+<br/>
+        <b>api_secret: secrecy::SecretString,</b>
+<br/>
+    <b>},</b>
+<b>}</b></pre>
+<dl class="Bl-tag">
+  <dt>&#x2022;</dt>
+  <dd><b>Session</b> &#x2013; logs in with email/password, manages session
+      cookies, and automatically extracts the CSRF token from /app.</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>Token</b> &#x2013; sends an <b>Authorization: token
+      api_key:api_secret</b> header on every request. No explicit login or
+      logout is required.</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="ClientConfig"><a class="permalink" href="#ClientConfig">ClientConfig</a></h2>
+<p class="Pp">Configuration container validated at client creation.</p>
+<p class="Pp"></p>
+<pre><b>pub struct ClientConfig {</b>
+<br/>
+    <b>pub base_url: reqwest::Url,</b>
+<br/>
+    <b>pub auth_mode: AuthMode,</b>
+<br/>
+    <b>pub expected_sitename: Option&lt;String&gt;,</b>
+<br/>
+    <b>pub required_roles: Vec&lt;String&gt;,</b>
+<br/>
+    <b>pub timeout_secs: u64,          // default 30</b>
+<br/>
+    <b>pub max_retries: u32,           // default 3</b>
+<br/>
+    <b>pub user_agent: String,</b>
+<br/>
+    <b>pub insecure_ssl: bool,         // default false</b>
+<b>}</b></pre>
+<p class="Pp"><b>Method:</b></p>
+<dl class="Bl-tag">
+  <dt id="validate(&amp;self)"><a class="permalink" href="#validate(&amp;self)"><b>validate(&amp;self)
+    -&gt; Result&lt;(), JssError&gt;</b></a></dt>
+  <dd>Ensures HTTPS is used unless <b>insecure_ssl</b> is true, and that email
+      and password are not empty for <b>Session</b> mode.</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="JssError"><a class="permalink" href="#JssError">JssError</a></h2>
+<p class="Pp">Comprehensive error type covering all failure modes.</p>
+<p class="Pp"></p>
+<pre><b>pub enum JssError {</b>
+<br/>
+    <b>Config(String),</b>
+<br/>
+    <b>Validation(String),</b>
+<br/>
+    <b>Network(reqwest::Error),</b>
+<br/>
+    <b>Http { status: StatusCode, body: String },</b>
+<br/>
+    <b>ApiError { exc_type: String, message: String, status: StatusCode },</b>
+<br/>
+    <b>Auth(String),</b>
+<br/>
+    <b>Csrf(String),</b>
+<br/>
+    <b>Permission(String),</b>
+<br/>
+    <b>SitenameMismatch { expected: String, actual: String },</b>
+<br/>
+    <b>NotAuthenticated,</b>
+<br/>
+    <b>RateLimited { retry_after: Option&lt;u64&gt; },</b>
+<br/>
+    <b>Parse(String),</b>
+<br/>
+    <b>Expired,</b>
+<br/>
+    <b>Cancelled,</b>
+<br/>
+    <b>FileOperation(String),</b>
+<br/>
+    <b>Internal(String),</b>
+<b>}</b></pre>
+<p class="Pp"><b>Helper methods:</b></p>
+<dl class="Bl-tag">
+  <dt id="from_api_response(status:"><a class="permalink" href="#from_api_response(status:"><b>from_api_response(status:
+    StatusCode, body: &amp;str) -&gt; JssError</b></a></dt>
+  <dd>Parses a Frappe JSON error body. If <b>exc_type</b> is present, returns
+      <b>ApiError</b>; otherwise returns <b>Http</b>.</dd>
+  <dt id="status_code(&amp;self)"><a class="permalink" href="#status_code(&amp;self)"><b>status_code(&amp;self)
+    -&gt; StatusCode</b></a></dt>
+  <dd>Maps each variant to an appropriate HTTP status code (e.g., <b>Config</b>
+      &#x2192; 500, <b>Network</b> &#x2192; 502, <b>Auth</b> &#x2192; 401,
+      <b>Csrf</b> &#x2192; 403, <b>RateLimited</b> &#x2192; 429).</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="SessionInfo"><a class="permalink" href="#SessionInfo">SessionInfo</a></h2>
+<p class="Pp">Session data stored after a successful login.</p>
+<p class="Pp"></p>
+<pre><b>pub struct SessionInfo {</b>
+<br/>
+    <b>pub sid: secrecy::SecretString,</b>
+<br/>
+    <b>pub csrf_token: secrecy::SecretString,</b>
+<br/>
+    <b>pub full_name: Option&lt;String&gt;,</b>
+<br/>
+    <b>pub sitename: String,</b>
+<br/>
+    <b>pub roles: Vec&lt;String&gt;,</b>
+<b>}</b></pre>
+<dl class="Bl-tag">
+  <dt>&#x2022;</dt>
+  <dd><b>sid</b> &#x2013; session ID from the login response.</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>csrf_token</b> &#x2013; token extracted from the <b>/app</b> page.</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>full_name</b> &#x2013; user&#x2019;s full name (from boot or login
+      response).</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>sitename</b> &#x2013; site name from <b>frappe.boot</b>.</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>roles</b> &#x2013; user role list.</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="FrappeBoot_and_related_types"><a class="permalink" href="#FrappeBoot_and_related_types">FrappeBoot
+  and related types</a></h2>
+<p class="Pp">Data structure deserialized from the JavaScript <b>frappe.boot</b>
+    object on the <b>/app</b> page. All fields have defaults (mostly
+    <b>Option</b> or empty collections). The full definition can be found in the
+    source; here are the most important fields:</p>
+<p class="Pp"><b>FrappeBoot</b>:</p>
+<div class="Bd-indent">
+<p class="Pp"></p>
+<pre><b>pub user: BootUser,</b>
+<b>pub sitename: String,</b>
+<b>pub csrf_token: String,</b>
+<b>pub sysdefaults: SysDefaults,</b>
+<b>pub app_logo_url: Option&lt;String&gt;,</b>
+<b>pub home_page: Option&lt;String&gt;,</b>
+<b>pub allow_modules: Vec&lt;String&gt;,</b>
+<b>pub can_select: Vec&lt;String&gt;,</b>  (and similar permission vectors)
+<b>pub all_reports: HashMap&lt;String, ReportMeta&gt;,</b>
+<b>pub dashboards: Vec&lt;DashboardMeta&gt;,</b>
+<b>pub user_info: HashMap&lt;String, BootUserInfo&gt;,</b>
+<b>pub sidebar_pages: SidebarPages,</b>
+<b>pub navbar_settings: Option&lt;NavbarSettings&gt;,</b>
+<b>pub versions: HashMap&lt;String, String&gt;,</b>
+<b>pub lang_dict: HashMap&lt;String, String&gt;,</b>
+<b>pub frequently_visited_links: Vec&lt;FrequentLink&gt;,</b>
+<b>pub developer_mode: i32,</b>
+<b>pub read_only: bool,</b>
+<b>...</b></pre>
+</div>
+<p class="Pp"><b>BootUser</b>: Contains the user&#x2019;s <b>name</b>,
+    <b>email</b>, <b>full_name</b>, <b>roles</b>, <b>user_type</b>,
+    <b>permissions</b> (a map of doctype to allowed actions), and permission
+    vectors like <b>can_select</b>, <b>can_write</b>, etc.</p>
+<p class="Pp"><b>SysDefaults</b>: <b>default_app: Option&lt;String&gt;</b>,
+    <b>time_zone: Option&lt;String&gt;</b>.</p>
+<p class="Pp"><b>ReportMeta</b>: <b>modified</b>, <b>title</b>,
+    <b>ref_doctype</b>, <b>report_type</b>.</p>
+<p class="Pp"><b>DashboardMeta</b>: <b>name: String</b>.</p>
+<p class="Pp"><b>AppData</b>: <b>app_name</b>, <b>app_title</b>,
+    <b>app_route</b>, <b>app_logo_url</b>, <b>modules</b>,
+  <b>workspaces</b>.</p>
+<p class="Pp"><b>BootUserInfo</b>: <b>fullname</b>, <b>image</b>, <b>name</b>,
+    <b>email</b>, <b>time_zone</b>.</p>
+<p class="Pp"><b>SidebarPages</b>: <b>workspace_setup_completed:
+    Option&lt;i32&gt;</b>, <b>pages: Vec&lt;SidebarPage&gt;</b>, <b>has_access:
+    bool</b>, <b>has_create_access: bool</b>.</p>
+<p class="Pp"><b>SidebarPage</b>: Many fields, see source code.</p>
+<p class="Pp"><b>NavbarSettings</b>: <b>settings_dropdown:
+    Vec&lt;NavbarItem&gt;</b>, <b>help_dropdown: Vec&lt;NavbarItem&gt;</b>.</p>
+<p class="Pp"><b>NavbarItem</b>: <b>item_label</b>, <b>item_type</b>,
+    <b>action</b>, <b>route</b>, <b>hidden</b>, <b>is_standard</b>.</p>
+<p class="Pp"><b>PageInfo</b>: <b>title</b>, <b>modified</b>.</p>
+<p class="Pp"><b>FrequentLink</b>: <b>route: String</b>, <b>count: i32</b>.</p>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="AuthEndpoints_(trait)"><a class="permalink" href="#AuthEndpoints_(trait)">AuthEndpoints
+  (trait)</a></h2>
+<p class="Pp">Implemented by <b>RjssClient</b>. Provides static URL builders
+    that can be used without a client instance.</p>
+<p class="Pp"></p>
+<pre><b>pub trait AuthEndpoints {</b>
+<br/>
+    <b>fn login_url(base: &amp;Url) -&gt; Result&lt;Url, JssError&gt;;</b>
+<br/>
+    <b>fn logout_url(base: &amp;Url) -&gt; Result&lt;Url, JssError&gt;;</b>
+<br/>
+    <b>fn csrf_token_url(base: &amp;Url) -&gt; Result&lt;Url, JssError&gt;;</b>
+<br/>
+    <b>fn get_logged_user_url(base: &amp;Url) -&gt; Result&lt;Url, JssError&gt;;</b>
+<br/>
+    <b>fn app_page_url(base: &amp;Url) -&gt; Result&lt;Url, JssError&gt;;</b>
+<b>}</b></pre>
+<p class="Pp">Each yields URLs such as <b>/api/method/login</b>,
+    <b>/api/method/logout</b>, etc.</p>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="ReportBuilder"><a class="permalink" href="#ReportBuilder">ReportBuilder</a></h2>
+<p class="Pp">Built by <b>RjssClient::report()</b>. Allows chaining filters
+    before executing a report.</p>
+<p class="Pp"><b>Methods:</b></p>
+<dl class="Bl-tag">
+  <dt id="add_filter(mut"><a class="permalink" href="#add_filter(mut"><b>add_filter(mut
+    self, field: &amp;str, value: &amp;str) -&gt; Self</b></a></dt>
+  <dd>Adds a (field, value) filter. Can be chained.</dd>
+  <dt id="async"><a class="permalink" href="#async"><b>async run_raw(&amp;self)
+    -&gt; Result&lt;String, JssError&gt;</b></a></dt>
+  <dd>Runs the report and returns the raw JSON string.</dd>
+  <dt id="async~2"><a class="permalink" href="#async~2"><b>async run&lt;T:
+    DeserializeOwned&gt;(&amp;self) -&gt; Result&lt;T, JssError&gt;</b></a></dt>
+  <dd>Runs the report and deserializes directly into <i>T</i>.</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="ResourceBuilder"><a class="permalink" href="#ResourceBuilder">ResourceBuilder</a></h2>
+<p class="Pp">Built by <b>RjssClient::doctype()</b>. Builder for document
+    listing with filters, field selection, ordering, and pagination.</p>
+<p class="Pp"><b>Methods:</b></p>
+<dl class="Bl-tag">
+  <dt id="filter(mut"><a class="permalink" href="#filter(mut"><b>filter(mut
+    self, field: &amp;str, operator: &amp;str, value: &amp;str) -&gt;
+    Self</b></a></dt>
+  <dd>Adds a filter condition (e.g.,
+      <b>filter(&quot;status&quot;,&quot;=&quot;,&quot;Open&quot;)</b>).</dd>
+  <dt id="fields(mut"><a class="permalink" href="#fields(mut"><b>fields(mut
+    self, fields: Vec&lt;&amp;str&gt;) -&gt; Self</b></a></dt>
+  <dd>Specifies which fields to return (JSON array).</dd>
+  <dt id="order_by(mut"><a class="permalink" href="#order_by(mut"><b>order_by(mut
+    self, order: &amp;str) -&gt; Self</b></a></dt>
+  <dd>Ordering (e.g., <b>&quot;creation desc&quot;</b>).</dd>
+  <dt id="limit(mut"><a class="permalink" href="#limit(mut"><b>limit(mut self,
+    limit: u32) -&gt; Self</b></a></dt>
+  <dd>Page size.</dd>
+  <dt id="limit_start(mut"><a class="permalink" href="#limit_start(mut"><b>limit_start(mut
+    self, start: u32) -&gt; Self</b></a></dt>
+  <dd>Starting index.</dd>
+  <dt id="async~3"><a class="permalink" href="#async~3"><b>async
+    execute_raw(&amp;self) -&gt; Result&lt;String, JssError&gt;</b></a></dt>
+  <dd>Executes and returns raw JSON.</dd>
+  <dt id="async~4"><a class="permalink" href="#async~4"><b>async execute&lt;T:
+    DeserializeOwned&gt;(&amp;self) -&gt; Result&lt;T, JssError&gt;</b></a></dt>
+  <dd>Executes and deserializes into <i>T</i>.</dd>
+  <dt id="async~5"><a class="permalink" href="#async~5"><b>async all&lt;T:
+    DeserializeOwned&gt;(&amp;self) -&gt; Result&lt;Vec&lt;T&gt;,
+    JssError&gt;</b></a></dt>
+  <dd>Automatically paginates with a page size of 200, collecting all records
+      into a <b>Vec&lt;T&gt;</b>.</dd>
+</dl>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="Additional_public_types"><a class="permalink" href="#Additional_public_types">Additional
+  public types</a></h2>
+<p class="Pp"><b>UserInfo</b>: <b>{ message: UserInfoMessage }</b>, where
+    <b>UserInfoMessage</b> has <b>name</b>, <b>email: Option&lt;String&gt;</b>,
+    <b>roles: Vec&lt;String&gt;</b>.</p>
+<p class="Pp"><b>LoginApiResponse</b> and <b>LoginApiMessage</b> are used
+    internally for login parsing.</p>
+</section>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="USAGE_EXAMPLES"><a class="permalink" href="#USAGE_EXAMPLES">USAGE
+  EXAMPLES</a></h1>
+<section class="Ss">
+<h2 class="Ss" id="1._Setup_and_session_authentication"><a class="permalink" href="#1._Setup_and_session_authentication">1.
+  Setup and session authentication</a></h2>
+<pre>use librjss::{RjssClient, ClientConfig, AuthMode};
+use secrecy::SecretString;
+let config = ClientConfig {
+<br/>
+    base_url: &quot;https://app.example.com&quot;.parse().unwrap(),
+<br/>
+    auth_mode: AuthMode::Session {
+<br/>
+        email: SecretString::new(&quot;user@example.com&quot;.into()),
+<br/>
+        password: SecretString::new(&quot;secret&quot;.into()),
+<br/>
+    },
+<br/>
+    ..Default::default()
+};
+let mut client = RjssClient::new(config)?;
+client.authenticate().await?;
+println!(&quot;Logged in as: {:?}&quot;, client.session_info().unwrap().full_name);</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="2._Basic_GET_and_POST"><a class="permalink" href="#2._Basic_GET_and_POST">2.
+  Basic GET and POST</a></h2>
+<pre>let body = client.authenticated_get(&quot;/api/resource/ToDo&quot;).await?;
+let resp = client.authenticated_post(
+<br/>
+    &quot;/api/resource/ToDo&quot;,
+<br/>
+    r#&quot;{&quot;description&quot;:&quot;test&quot;}&quot;#
+).await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="3._File_upload"><a class="permalink" href="#3._File_upload">3.
+  File upload</a></h2>
+<pre>let image_bytes = std::fs::read(&quot;photo.png&quot;)?;
+let result = client.upload_file(
+<br/>
+    &quot;photo.png&quot;, image_bytes, &quot;Customer&quot;, &quot;CUST-001&quot;, &quot;image&quot;
+).await?;
+println!(&quot;Upload response: {}&quot;, result);</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="4._File_download"><a class="permalink" href="#4._File_download">4.
+  File download</a></h2>
+<pre>let bytes = client.download_file(&quot;/files/photo.png&quot;).await?;
+std::fs::write(&quot;local.png&quot;, bytes)?;
+// or directly
+client.download_file_to_path(&quot;/files/photo.png&quot;, Path::new(&quot;local.png&quot;)).await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="5._Running_a_report"><a class="permalink" href="#5._Running_a_report">5.
+  Running a report</a></h2>
+<pre>#[derive(Deserialize)]
+struct MyReportRow { /* ... */ }
+let rows: Vec&lt;MyReportRow&gt; = client
+<br/>
+    .report(&quot;Sales Analytics&quot;)
+<br/>
+    .add_filter(&quot;from_date&quot;, &quot;2026-01-01&quot;)
+<br/>
+    .add_filter(&quot;to_date&quot;, &quot;2026-06-30&quot;)
+<br/>
+    .run()
+<br/>
+    .await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="6._Doctype_listing_with_filters"><a class="permalink" href="#6._Doctype_listing_with_filters">6.
+  Doctype listing with filters</a></h2>
+<pre>let list: serde_json::Value = client
+<br/>
+    .doctype(&quot;ToDo&quot;)
+<br/>
+    .filter(&quot;status&quot;, &quot;=&quot;, &quot;Open&quot;)
+<br/>
+    .fields(vec![&quot;name&quot;, &quot;description&quot;, &quot;date&quot;])
+<br/>
+    .order_by(&quot;creation desc&quot;)
+<br/>
+    .limit(50)
+<br/>
+    .execute()
+<br/>
+    .await?;
+// Fetch all records
+let all: Vec&lt;ToDo&gt; = client
+<br/>
+    .doctype(&quot;ToDo&quot;)
+<br/>
+    .filter(&quot;status&quot;, &quot;=&quot;, &quot;Cancelled&quot;)
+<br/>
+    .all()
+<br/>
+    .await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="7._Single_document_CRUD"><a class="permalink" href="#7._Single_document_CRUD">7.
+  Single document CRUD</a></h2>
+<pre>let doc = client.get_doc(&quot;Customer&quot;, &quot;CUST-001&quot;).await?;
+#[derive(Serialize)]
+struct NewCustomer { customer_name: String, customer_group: String }
+let new_cust = NewCustomer { ... };
+let created = client.create_doc(&quot;Customer&quot;, &amp;new_cust).await?;
+let updated = client.update_doc(&quot;Customer&quot;, &quot;CUST-001&quot;, &amp;modification).await?;
+let deleted = client.delete_doc(&quot;Customer&quot;, &quot;OLD-CUST&quot;).await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="8._Calling_a_server_method"><a class="permalink" href="#8._Calling_a_server_method">8.
+  Calling a server method</a></h2>
+<pre>use std::collections::HashMap;
+let mut args = HashMap::new();
+args.insert(&quot;doctype&quot;.into(), &quot;Sales Invoice&quot;.into());
+args.insert(&quot;docname&quot;.into(), &quot;SINV-0001&quot;.into());
+let result = client.call_method(&quot;frappe.email.send&quot;, Some(args)).await?;</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="9._Error_handling"><a class="permalink" href="#9._Error_handling">9.
+  Error handling</a></h2>
+<pre>match client.authenticated_get(&quot;/api/resource/ToDo&quot;).await {
+<br/>
+    Err(JssError::ApiError { exc_type, message, status }) =&gt; {
+<br/>
+        eprintln!(&quot;[{exc_type}] {message} (HTTP {status})&quot;);
+<br/>
+    }
+<br/>
+    Err(JssError::RateLimited { retry_after }) =&gt; {
+<br/>
+        let secs = retry_after.unwrap_or(5);
+<br/>
+        tokio::time::sleep(Duration::from_secs(secs)).await;
+<br/>
+        // retry
+<br/>
+    }
+<br/>
+    Err(e) =&gt; {
+<br/>
+        eprintln!(&quot;Other error: {}&quot;, e);
+<br/>
+        let status_code = e.status_code();
+<br/>
+        // ...
+<br/>
+    }
+<br/>
+    Ok(data) =&gt; { /* process data */ }
+}</pre>
+</section>
+<section class="Ss">
+<h2 class="Ss" id="10._Accessing_boot_data"><a class="permalink" href="#10._Accessing_boot_data">10.
+  Accessing boot data</a></h2>
+<pre>if let Some(boot) = client.boot() {
+<br/>
+    println!(&quot;Site: {}&quot;, boot.sitename);
+<br/>
+    println!(&quot;Roles: {:?}&quot;, boot.user.roles);
+<br/>
+    for (doctype, perms) in &amp;boot.user.permissions {
+<br/>
+        println!(&quot;{} can: {:?}&quot;, doctype, perms);
+<br/>
+    }
+<br/>
+    if client.is_developer_mode() {
+<br/>
+        println!(&quot;Developer mode active&quot;);
+<br/>
+    }
+}</pre>
+</section>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="CONFIGURATION_(ENVIRONMENT_VARIABLES_FOR_CLI)"><a class="permalink" href="#CONFIGURATION_(ENVIRONMENT_VARIABLES_FOR_CLI)">CONFIGURATION
+  (ENVIRONMENT VARIABLES FOR CLI)</a></h1>
+<p class="Pp">The following variables are used by the <b>cli_auth</b> binary and
+    can be adopted in your own applications:</p>
+<dl class="Bl-tag">
+  <dt id="JSS_BASE_URL"><a class="permalink" href="#JSS_BASE_URL"><b>JSS_BASE_URL</b></a></dt>
+  <dd>Required. Base URL of the JSS instance.</dd>
+  <dt id="JSS_EMAIL"><a class="permalink" href="#JSS_EMAIL"><b>JSS_EMAIL</b></a></dt>
+  <dd>Email for session auth.</dd>
+  <dt id="JSS_PASSWORD"><a class="permalink" href="#JSS_PASSWORD"><b>JSS_PASSWORD</b></a></dt>
+  <dd>Password for session auth.</dd>
+  <dt id="JSS_TOKEN_API_KEY"><a class="permalink" href="#JSS_TOKEN_API_KEY"><b>JSS_TOKEN_API_KEY</b></a></dt>
+  <dd>API key for token auth.</dd>
+  <dt id="JSS_TOKEN_API_SECRET"><a class="permalink" href="#JSS_TOKEN_API_SECRET"><b>JSS_TOKEN_API_SECRET</b></a></dt>
+  <dd>API secret for token auth.</dd>
+  <dt id="JSS_EXPECTED_SITENAME"><a class="permalink" href="#JSS_EXPECTED_SITENAME"><b>JSS_EXPECTED_SITENAME</b></a></dt>
+  <dd>Optional. Expected site name; login fails if the boot sitename does not
+      match.</dd>
+  <dt id="JSS_REQUIRED_ROLES"><a class="permalink" href="#JSS_REQUIRED_ROLES"><b>JSS_REQUIRED_ROLES</b></a></dt>
+  <dd>Optional. Comma-separated required roles.</dd>
+  <dt id="JSS_TIMEOUT_SECS"><a class="permalink" href="#JSS_TIMEOUT_SECS"><b>JSS_TIMEOUT_SECS</b></a></dt>
+  <dd>Request timeout in seconds (default 30).</dd>
+  <dt id="JSS_MAX_RETRIES"><a class="permalink" href="#JSS_MAX_RETRIES"><b>JSS_MAX_RETRIES</b></a></dt>
+  <dd>Maximum retry attempts (default 3).</dd>
+  <dt id="JSS_USER_AGENT"><a class="permalink" href="#JSS_USER_AGENT"><b>JSS_USER_AGENT</b></a></dt>
+  <dd>Custom User-Agent header.</dd>
+  <dt id="JSS_INSECURE_SSL"><a class="permalink" href="#JSS_INSECURE_SSL"><b>JSS_INSECURE_SSL</b></a></dt>
+  <dd>Set &quot;true&quot; to accept invalid TLS certificates (e.g.,
+      self-signed).</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="MOCK_SERVER_FOR_DEVELOPMENT"><a class="permalink" href="#MOCK_SERVER_FOR_DEVELOPMENT">MOCK
+  SERVER FOR DEVELOPMENT</a></h1>
+<p class="Pp">A full mock server is available at
+    <b>examples/jss_mock_server.rs</b>. It replicates the behaviour of a real
+    JSS server:</p>
+<dl class="Bl-tag">
+  <dt>&#x2022;</dt>
+  <dd><b>POST /api/method/login</b> &#x2192; sets cookie + JSON</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>GET /app</b> &#x2192; HTML with <b>frappe.boot</b></dd>
+  <dt>&#x2022;</dt>
+  <dd><b>GET /api/method/frappe.auth.get_logged_user</b></dd>
+  <dt>&#x2022;</dt>
+  <dd><b>POST /api/method/logout</b></dd>
+  <dt>&#x2022;</dt>
+  <dd><b>GET /api/method/frappe.auth.get_csrf_token</b> (returns 417)</dd>
+</dl>
+<p class="Pp">Start it with:</p>
+<p class="Pp"><b>cargo run --example jss_mock_server</b></p>
+<p class="Pp">Then point the client to <b>http://127.0.0.1:8080</b> and set
+    <b>JSS_INSECURE_SSL=true</b>.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="TESTING"><a class="permalink" href="#TESTING">TESTING</a></h1>
+<p class="Pp">Unit tests (no server required):</p>
+<p class="Pp"><b>cargo test --lib</b></p>
+<p class="Pp">Integration tests require the mock server to be running. Once the
+    server is up:</p>
+<p class="Pp"><b>cargo test --test client_tests</b> <b>cargo test --test
+    file_tests</b> <b>cargo test --test report_tests</b> <b>cargo test --test
+    resource_tests</b></p>
+<p class="Pp">Or run everything:</p>
+<p class="Pp"><b>cargo test --workspace</b></p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="CI_PIPELINE"><a class="permalink" href="#CI_PIPELINE">CI
+  PIPELINE</a></h1>
+<p class="Pp">The file <b>.github/workflows/ci.yml</b> runs on every push/PR to
+    master:</p>
+<dl class="Bl-tag">
+  <dt>&#x2022;</dt>
+  <dd>Format check (<b>rustfmt</b>)</dd>
+  <dt>&#x2022;</dt>
+  <dd>Lint (<b>clippy -D warnings</b>)</dd>
+  <dt>&#x2022;</dt>
+  <dd><b>cargo check --workspace</b></dd>
+  <dt>&#x2022;</dt>
+  <dd>Unit tests (<b>cargo test --lib</b>)</dd>
+  <dt>&#x2022;</dt>
+  <dd>Start mock server &#x2192; integration tests</dd>
+  <dt>&#x2022;</dt>
+  <dd>Release build</dd>
+  <dt>&#x2022;</dt>
+  <dd>Upload <b>cli_auth</b> artifact</dd>
+</dl>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="LICENSE"><a class="permalink" href="#LICENSE">LICENSE</a></h1>
+<p class="Pp">MIT License &#x2013; see LICENSE file.</p>
+<p class="Pp">Copyright (c) 2026 mroczect &lt;mroczect@proton.me&gt;</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="SEE_ALSO"><a class="permalink" href="#SEE_ALSO">SEE
+  ALSO</a></h1>
+<p class="Pp"><b>cargo</b>(1), <b>reqwest</b>(7), <b>serde</b>(7)</p>
+<p class="Pp">The full source code and examples are available at
+    <a class="Lk" href="https://github.com/mroczect/librjss">https://github.com/mroczect/librjss</a>.</p>
+</section>
+<section class="Sh">
+<h1 class="Sh" id="AUTHOR"><a class="permalink" href="#AUTHOR">AUTHOR</a></h1>
+<p class="Pp">mroczect &lt;mroczect@proton.me&gt;</p>
+</section>
+</div>
+<table class="foot">
+  <tr>
+    <td class="foot-date">January 2026</td>
+    <td class="foot-os">librjss 2.0.0</td>
+  </tr>
+</table>
+</body>
+</html>
