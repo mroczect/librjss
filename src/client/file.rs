@@ -13,6 +13,10 @@ impl RjssClient {
         docname: &str,
         fieldname: &str,
     ) -> Result<String, JssError> {
+        if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+            return Err(JssError::Validation("Invalid file name".into()));
+        }
+
         let url = self
             .base_url()
             .join("/api/method/upload_file")
@@ -40,6 +44,10 @@ impl RjssClient {
 
     #[instrument(skip(self))]
     pub async fn download_file(&self, file_url: &str) -> Result<Vec<u8>, JssError> {
+        if file_url.contains("..") {
+            return Err(JssError::Validation("Invalid file URL".into()));
+        }
+
         let url = self
             .base_url()
             .join(file_url)
