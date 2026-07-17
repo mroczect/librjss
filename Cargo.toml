@@ -1,3 +1,0 @@
-[workspace]
-members = ["librjss", "app"]
-resolver = "2" 
