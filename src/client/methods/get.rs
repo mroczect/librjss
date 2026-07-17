@@ -1,5 +1,5 @@
-use crate::client::auth::http_helpers::{apply_auth_to_builder, backoff_config, build_join_url};
 use crate::client::RjssClient;
+use crate::client::auth::http_helpers::{apply_auth_to_builder, backoff_config, build_join_url};
 use crate::handler::error::JuraganError;
 use backoff::future::retry;
 use reqwest::StatusCode;
