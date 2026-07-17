@@ -70,7 +70,8 @@ impl RjssClient {
                 auth::login::login_with_credentials(self, email, password).await
             }
             crate::handler::config::AuthMode::Token { .. } => {
-                let session = auth::token::setup_token_session(self.config.expected_sitename.clone());
+                let session =
+                    auth::token::setup_token_session(self.config.expected_sitename.clone());
                 self.session = Some(session);
                 Ok(())
             }
