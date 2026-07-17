@@ -22,12 +22,9 @@ backoff = { version = "0.4", features = ["tokio"] }
 http = "1"
 regex = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+scraper = "0.18"
 
 [dev-dependencies]
 wiremock = "0.5"
 tokio = { version = "1", features = ["macros", "rt"] }
 serde_json = "1"
-
-[[bin]]
-name = "librjss_exm_auth_cli"
-path = "examples/cli_auth.rs"
