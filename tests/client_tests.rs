@@ -117,7 +117,7 @@ async fn test_authenticate_rate_limited() {
 
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     let result = client.authenticate().await;
-    assert!(matches!(result, Err(JssError::RateLimited)));
+    assert!(matches!(result, Err(JssError::RateLimited { .. })));
 }
 
 #[tokio::test]
