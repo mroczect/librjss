@@ -89,7 +89,11 @@ pub(crate) async fn login_with_credentials(
     }
 
     if !client.config.required_roles.is_empty() {
-        let has_role = client.config.required_roles.iter().any(|r| roles.contains(r));
+        let has_role = client
+            .config
+            .required_roles
+            .iter()
+            .any(|r| roles.contains(r));
         if !has_role {
             error!(trace_id = client.trace_id, ?roles, required = ?client.config.required_roles, "Missing required roles");
             return Err(JuraganError::Permission(format!(

@@ -37,7 +37,7 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
         }
     }
 
-    let re = Regex::new(r"frappe\.boot\s*=\s*(\{.*?\});\s*\n")
+    let re = Regex::new(r"(?s)frappe\.boot\s*=\s*(\{.*?\});\s*\n")
         .map_err(|_| JuraganError::Parse("Regex compilation error".into()))?;
     let caps = re.captures(html).ok_or(JuraganError::Parse(
         "Could not find frappe.boot object in /app".into(),
