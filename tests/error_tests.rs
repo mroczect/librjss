@@ -1,14 +1,14 @@
-use librjss::handler::error::JuraganError;
+use librjss::handler::error::JssError;
 
 #[test]
 fn test_error_display() {
-    let e = JuraganError::Config("bad config".into());
+    let e = JssError::Config("bad config".into());
     assert_eq!(format!("{}", e), "Invalid configuration: bad config");
 
-    let e = JuraganError::Auth("denied".into());
+    let e = JssError::Auth("denied".into());
     assert_eq!(format!("{}", e), "Authentication failed: denied");
 
-    let e = JuraganError::SitenameMismatch {
+    let e = JssError::SitenameMismatch {
         expected: "a".into(),
         actual: "b".into(),
     };
@@ -20,9 +20,9 @@ async fn test_network_from_reqwest() {
     let result = reqwest::get("http://127.0.0.1:1").await;
     assert!(result.is_err());
     let reqwest_err = result.unwrap_err();
-    let e: JuraganError = reqwest_err.into();
+    let e: JssError = reqwest_err.into();
     match e {
-        JuraganError::Network(_) => {}
+        JssError::Network(_) => {}
         _ => panic!("expected Network variant"),
     }
 }
