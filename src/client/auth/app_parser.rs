@@ -1,25 +1,25 @@
 use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use crate::handler::types::boot::FrappeBoot;
 use regex::Regex;
 use scraper::{Html, Selector};
 use secrecy::SecretString;
 use tracing::error;
 
-pub(crate) async fn fetch_app_page(client: &RjssClient) -> Result<String, JuraganError> {
+pub(crate) async fn fetch_app_page(client: &RjssClient) -> Result<String, JssError> {
     let app_url = RjssClient::app_page_url(&client.config.base_url);
     let resp = client.http.get(app_url).send().await?;
     let status = resp.status();
     let body = resp.text().await?;
     error!(trace_id = client.trace_id, %status, %body, "Raw /app response");
     if !status.is_success() {
-        return Err(JuraganError::Auth("Failed to load /app".into()));
+        return Err(JssError::Auth("Failed to load /app".into()));
     }
     Ok(body)
 }
 
-pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot), JuraganError> {
+pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot), JssError> {
     let document = Html::parse_document(html);
 
     let selector = Selector::parse("script").unwrap();
@@ -38,14 +38,14 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
     }
 
     let re = Regex::new(r"(?s)frappe\.boot\s*=\s*(\{.*?\});\s*\n")
-        .map_err(|_| JuraganError::Parse("Regex compilation error".into()))?;
-    let caps = re.captures(html).ok_or(JuraganError::Parse(
+        .map_err(|_| JssError::Parse("Regex compilation error".into()))?;
+    let caps = re.captures(html).ok_or(JssError::Parse(
         "Could not find frappe.boot object in /app".into(),
     ))?;
     let boot_json = caps.get(1).unwrap().as_str();
 
     let boot: FrappeBoot = serde_json::from_str(boot_json)
-        .map_err(|e| JuraganError::Parse(format!("Failed to parse frappe.boot: {e}")))?;
+        .map_err(|e| JssError::Parse(format!("Failed to parse frappe.boot: {e}")))?;
 
     Ok((SecretString::new(Box::from(csrf_token)), boot))
 }
