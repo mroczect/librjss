@@ -1,0 +1,24 @@
+[package]
+name = "librjss"
+version = "0.1.0"
+edition = "2024"
+description = "Robust client library for Juragan Subsystem"
+license = "MIT"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "cookies"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+url = { version = "2", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+secrecy = { version = "0.10", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+backoff = { version = "0.4", features = ["tokio"] }
+http = "1"
+regex = "1"
