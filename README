@@ -1,0 +1,195 @@
+librjss
+
+  Robust, zero-framework client library for Juragan Subsystem (JSS)
+  authentication and API access. Provides cookie-based session management
+  with automatic CSRF token extraction, retry logic, and full diagnostic
+  tracing.
+
+  Version: 1.0.0   License: MIT   Status: Early development
+
+----------------------------------------------------------------
+Installation
+----------------------------------------------------------------
+
+  [dependencies]
+  librjss = { git = "https://github.com/mroczect/librjss.git" }
+
+----------------------------------------------------------------
+Quick start – CLI binary
+----------------------------------------------------------------
+
+  export JSS_BASE_URL=https://app.juragansejati.biz.id
+  export JSS_EMAIL=user@example.com
+  export JSS_PASSWORD=password
+  export JSS_INSECURE_SSL=false          # set true only for dev
+  cargo run --bin cli_auth
+
+  The CLI authenticates, prints session info, and performs a test
+  request to /api/method/frappe.auth.get_logged_user.
+
+----------------------------------------------------------------
+Project layout
+----------------------------------------------------------------
+
+  src/
+    api/auth/          AuthEndpoints trait (URL builders)
+    bin/cli_auth.rs    CLI login tool
+    client/
+      auth/            login, logout, session, token, app parser,
+                       http helpers
+      methods/         authenticated_get, post, put, delete
+    handler/
+      config/          AuthMode, ClientConfig, validation
+      error.rs         JuraganError enum
+      types/           FrappeBoot, SessionInfo, login/user info
+
+  examples/
+    jss_mock_server.rs    Full offline mock of JSS server for dev
+
+  tests/
+    api_auth_tests.rs     URL builder tests
+    client_tests.rs       Integration tests against mock server
+    env_tests.rs          Config validation tests
+    error_tests.rs        Error type tests
+    types_tests.rs        Deserialisation tests
+
+  .github/workflows/ci.yml   CI pipeline (fmt, clippy, test, release)
+
+----------------------------------------------------------------
+Core concepts
+----------------------------------------------------------------
+
+  RjssClient
+    Central client holding configuration, HTTP client, session, and
+    credentials. Public API:
+      new(config) -> Result<Self, JuraganError>
+      authenticate() -> Result<(), JuraganError>
+      logout() -> Result<(), JuraganError>
+      ensure_session() -> Result<(), JuraganError>
+      session_info() -> Option<&SessionInfo>
+      authenticated_get(path) -> Result<String, JuraganError>
+      authenticated_post(path, json) -> Result<String, JuraganError>
+      authenticated_put(path, json) -> Result<String, JuraganError>
+      authenticated_delete(path) -> Result<String, JuraganError>
+
+  AuthMode (enum)
+    Session { email: SecretString, password: SecretString }
+    Token   { api_key: String, api_secret: SecretString }
+
+  ClientConfig
+    base_url: Url
+    auth_mode: AuthMode
+    expected_sitename: Option<String>
+    required_roles: Vec<String>
+    timeout_secs: u64           (default 30)
+    max_retries: u32            (default 3)
+    user_agent: String
+    insecure_ssl: bool          (default false)
+    Method: validate() -> Result<(), JuraganError>
+
+  JuraganError (enum)
+    Config(String)
+    Validation(String)
+    Network(reqwest::Error)
+    Http { status, body }
+    Auth(String)
+    Csrf(String)
+    Permission(String)
+    SitenameMismatch { expected, actual }
+    NotAuthenticated
+    RateLimited
+    Parse(String)
+    Expired
+    Cancelled
+
+  SessionInfo
+    sid: SecretString
+    csrf_token: SecretString
+    full_name: Option<String>
+    sitename: String
+    roles: Vec<String>
+
+  FrappeBoot
+    Deserialised from the frappe.boot JavaScript object found in the
+    /app dashboard page. Contains user, sitename, csrf_token, and
+    sysdefaults.
+
+----------------------------------------------------------------
+Environment variables (CLI)
+----------------------------------------------------------------
+
+  JSS_BASE_URL            Required.  Base URL of the JSS instance.
+  JSS_EMAIL               Required for session auth.
+  JSS_PASSWORD            Required for session auth.
+  JSS_TOKEN_API_KEY       Required for token auth (if not using session).
+  JSS_TOKEN_API_SECRET    Required for token auth.
+  JSS_EXPECTED_SITENAME   Optional.  If set, login verifies the sitename
+                          in frappe.boot matches.
+  JSS_REQUIRED_ROLES      Optional.  Comma-separated roles that the user
+                          must possess.
+  JSS_TIMEOUT_SECS        Optional.  Request timeout in seconds (default 30).
+  JSS_MAX_RETRIES         Optional.  Maximum retry attempts (default 3).
+  JSS_USER_AGENT          Optional.  Custom User-Agent header.
+  JSS_INSECURE_SSL        Optional.  Accept invalid TLS certificates (true/false).
+
+----------------------------------------------------------------
+Mock server for development
+----------------------------------------------------------------
+
+  Start the server:
+    cargo run --example jss_mock_server
+
+  It listens on http://127.0.0.1:8080 and replicates the exact behaviour
+  of a JSS production instance: login response ("Logged In"), cookie
+  setting, /app dashboard page with frappe.boot, get_logged_user,
+  logout, and the missing CSRF endpoint (returns 417).
+
+  Set env vars accordingly:
+    export JSS_BASE_URL=http://127.0.0.1:8080
+    export JSS_EMAIL=dev@example.com
+    export JSS_PASSWORD=password123
+    export JSS_INSECURE_SSL=true
+
+  Then run the CLI or integration tests. The library does not know
+  the difference between mock and production.
+
+----------------------------------------------------------------
+Testing
+----------------------------------------------------------------
+
+  Unit tests (no server):
+    cargo test --lib
+
+  Integration tests (requires mock server running first):
+    (terminal 1)  cargo run --example jss_mock_server
+    (terminal 2)  JSS_BASE_URL=http://127.0.0.1:8080 \
+                  JSS_EMAIL=dev@example.com \
+                  JSS_PASSWORD=password123 \
+                  JSS_INSECURE_SSL=true \
+                  cargo test --test client_tests
+
+  All tests:
+    Start mock server, then:
+    cargo test --workspace
+
+----------------------------------------------------------------
+CI pipeline
+----------------------------------------------------------------
+
+  Located at .github/workflows/ci.yml. On every push or pull request to
+  master:
+    - Check formatting (rustfmt)
+    - Lint (clippy -D warnings)
+    - Compile check (cargo check --workspace)
+    - Run unit tests (cargo test --lib)
+    - Start mock server, run integration tests
+    - Build release binary (cargo build --release)
+    - Upload release artifact (cli_auth)
+
+----------------------------------------------------------------
+License
+----------------------------------------------------------------
+
+  MIT License – see LICENSE file.
+
+  Copyright (c) 2026 mroczect <mroczect@proton.me>
