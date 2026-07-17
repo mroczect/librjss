@@ -7,9 +7,19 @@ on:
       - 'docs/librjss.3'
   workflow_dispatch:
 
+# Beri izin yang dibutuhkan
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,13 +30,16 @@ jobs:
       - name: Generate HTML from manpage
         run: mandoc -Thtml docs/librjss.3 > librjss.html
 
-      - name: Rename to index.html (agar jadi halaman utama Pages)
-        run: mv librjss.html index.html
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'              # upload semua file, librjss.html akan di-root
+          # Jika hanya ingin file tertentu:
+          # path: 'librjss.html'
 
       - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
-          publish_branch: gh-pages
-          keep_files: false
+        id: deployment
+        uses: actions/deploy-pages@v4
