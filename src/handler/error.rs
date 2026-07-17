@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum JuraganError {
+pub enum JssError {
     #[error("Invalid configuration: {0}")]
     Config(String),
 
