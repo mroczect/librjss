@@ -19,9 +19,7 @@ pub(crate) async fn fetch_app_page(client: &RjssClient) -> Result<String, Juraga
     Ok(body)
 }
 
-pub(crate) fn extract_app_data(
-    html: &str,
-) -> Result<(SecretString, FrappeBoot), JuraganError> {
+pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot), JuraganError> {
     let document = Html::parse_document(html);
 
     let selector = Selector::parse("script").unwrap();
