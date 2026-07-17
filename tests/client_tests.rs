@@ -1,6 +1,6 @@
+use librjss::RjssClient;
 use librjss::handler::config::{AuthMode, ClientConfig};
 use librjss::handler::error::JuraganError;
-use librjss::RjssClient;
 use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use wiremock::matchers::{method, path};
@@ -62,18 +62,23 @@ async fn setup_client(server: &MockServer, auth_mode: AuthMode) -> RjssClient {
 async fn mock_login_and_app(server: &MockServer) {
     Mock::given(method("POST"))
         .and(path("/api/method/login"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("{\"message\":\"Logged In\",\"full_name\":\"Test User\"}"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("{\"message\":\"Logged In\",\"full_name\":\"Test User\"}"),
+        )
         .mount(server)
         .await;
 
     Mock::given(method("GET"))
         .and(path("/app"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(mock_app_html("testsite", "Test User", vec!["System Manager"])))
+        .respond_with(ResponseTemplate::new(200).set_body_string(mock_app_html(
+            "testsite",
+            "Test User",
+            vec!["System Manager"],
+        )))
         .mount(server)
         .await;
 }
-
-// --- Authenticate ---
 
 #[tokio::test]
 async fn test_authenticate_session_success() {
@@ -130,8 +135,6 @@ async fn test_authenticate_login_http_error() {
     assert!(matches!(result, Err(JuraganError::Auth(_))));
 }
 
-// --- Authenticated requests ---
-
 #[tokio::test]
 async fn test_authenticated_get_success() {
     let server = MockServer::start().await;
@@ -146,7 +149,10 @@ async fn test_authenticated_get_success() {
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     client.authenticate().await.unwrap();
 
-    let body = client.authenticated_get("/api/resource/test").await.unwrap();
+    let body = client
+        .authenticated_get("/api/resource/test")
+        .await
+        .unwrap();
     assert_eq!(body, "resource data");
 }
 
@@ -157,7 +163,10 @@ async fn test_authenticated_post_with_csrf() {
 
     Mock::given(method("POST"))
         .and(path("/api/resource/test"))
-        .and(wiremock::matchers::header("X-Frappe-CSRF-Token", "mock_csrf_token"))
+        .and(wiremock::matchers::header(
+            "X-Frappe-CSRF-Token",
+            "mock_csrf_token",
+        ))
         .respond_with(ResponseTemplate::new(200).set_body_string("created"))
         .mount(&server)
         .await;
@@ -165,7 +174,10 @@ async fn test_authenticated_post_with_csrf() {
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     client.authenticate().await.unwrap();
 
-    let body = client.authenticated_post("/api/resource/test", "{}").await.unwrap();
+    let body = client
+        .authenticated_post("/api/resource/test", "{}")
+        .await
+        .unwrap();
     assert_eq!(body, "created");
 }
 
@@ -176,8 +188,6 @@ async fn test_authenticated_request_path_traversal() {
     let result = client.authenticated_get("/../etc/passwd").await;
     assert!(matches!(result, Err(JuraganError::Validation(_))));
 }
-
-// --- Logout ---
 
 #[tokio::test]
 async fn test_logout_success() {
@@ -206,25 +216,20 @@ async fn test_logout_not_authenticated() {
     assert!(matches!(result, Err(JuraganError::NotAuthenticated)));
 }
 
-// --- Ensure session ---
-
 #[tokio::test]
 async fn test_ensure_session_valid() {
     let server = MockServer::start().await;
 
-    // Mock untuk pengecekan sesi
     Mock::given(method("GET"))
         .and(path("/api/method/frappe.auth.get_logged_user"))
         .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
         .mount(&server)
         .await;
 
-    // Mock untuk login (tidak akan dipanggil karena sesi sudah ada)
     mock_login_and_app(&server).await;
 
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     client.authenticate().await.unwrap();
 
-    // ensure_session harus langsung return Ok karena sesi valid
     client.ensure_session().await.unwrap();
 }
