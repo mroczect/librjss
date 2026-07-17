@@ -23,7 +23,10 @@ pub(crate) fn apply_auth_to_builder(
     req
 }
 
-pub(crate) fn build_join_url(client: &RjssClient, path: &str) -> Result<reqwest::Url, JuraganError> {
+pub(crate) fn build_join_url(
+    client: &RjssClient,
+    path: &str,
+) -> Result<reqwest::Url, JuraganError> {
     if path.contains("..") {
         return Err(JuraganError::Validation(
             "Path traversal not allowed".into(),
