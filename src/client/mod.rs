@@ -1,5 +1,8 @@
 pub mod auth;
+pub mod file;
 pub mod methods;
+pub mod report;
+pub mod resource;
 
 use reqwest::Client as ReqwestClient;
 use reqwest::Url;
@@ -13,6 +16,7 @@ use crate::api::auth::AuthEndpoints;
 use crate::handler::config::ClientConfig;
 use crate::handler::error::JssError;
 use crate::handler::types::SessionInfo;
+use crate::handler::types::boot::FrappeBoot;
 
 pub struct RjssClient {
     pub(crate) config: ClientConfig,
@@ -20,6 +24,7 @@ pub struct RjssClient {
     pub(crate) session: Option<SessionInfo>,
     pub(crate) trace_id: String,
     pub(crate) credentials: Option<(SecretString, SecretString)>,
+    pub(crate) boot: Option<FrappeBoot>,
 }
 
 impl AuthEndpoints for RjssClient {}
@@ -48,6 +53,7 @@ impl RjssClient {
             session: None,
             trace_id,
             credentials: None,
+            boot: None,
         })
     }
 
@@ -61,6 +67,10 @@ impl RjssClient {
 
     pub fn session_info(&self) -> Option<&SessionInfo> {
         self.session.as_ref()
+    }
+
+    pub fn boot(&self) -> Option<&FrappeBoot> {
+        self.boot.as_ref()
     }
 
     pub async fn authenticate(&mut self) -> Result<(), JssError> {
@@ -98,11 +108,7 @@ impl RjssClient {
         methods::post::authenticated_post(self, path, body_json).await
     }
 
-    pub async fn authenticated_put(
-        &self,
-        path: &str,
-        body_json: &str,
-    ) -> Result<String, JssError> {
+    pub async fn authenticated_put(&self, path: &str, body_json: &str) -> Result<String, JssError> {
         methods::put::authenticated_put(self, path, body_json).await
     }
 
