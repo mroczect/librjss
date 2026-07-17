@@ -1,7 +1,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// Represents the `frappe.boot` object from the Frappe dashboard page.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FrappeBoot {
     #[serde(default)]
@@ -18,7 +17,6 @@ pub struct FrappeBoot {
     pub home_page: Option<String>,
 }
 
-/// User information embedded in `frappe.boot`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct BootUser {
     #[serde(default)]
@@ -37,7 +35,6 @@ pub struct BootUser {
     pub permissions: HashMap<String, Vec<String>>,
 }
 
-/// System defaults embedded in `frappe.boot`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SysDefaults {
     #[serde(default)]
