@@ -1,6 +1,6 @@
 use crate::client::RjssClient;
 use crate::client::auth::http_helpers::{apply_auth_to_builder, backoff_config, build_join_url};
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use backoff::future::retry;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
@@ -11,7 +11,7 @@ pub(crate) async fn authenticated_post(
     client: &RjssClient,
     path: &str,
     body_json: &str,
-) -> Result<String, JuraganError> {
+) -> Result<String, JssError> {
     let url = build_join_url(client, path)?;
     let http = client.http.clone();
     let auth_mode = client.config.auth_mode.clone();
@@ -45,15 +45,15 @@ pub(crate) async fn authenticated_post(
             let resp = req
                 .send()
                 .await
-                .map_err(|e| backoff::Error::transient(JuraganError::Network(e)))?;
+                .map_err(|e| backoff::Error::transient(JssError::Network(e)))?;
             let status = resp.status();
             if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
-                Err(backoff::Error::transient(JuraganError::Http {
+                Err(backoff::Error::transient(JssError::Http {
                     status,
                     body: String::new(),
                 }))
             } else if status == StatusCode::UNAUTHORIZED {
-                Err(backoff::Error::permanent(JuraganError::Auth(
+                Err(backoff::Error::permanent(JssError::Auth(
                     "Unauthorized".into(),
                 )))
             } else {
