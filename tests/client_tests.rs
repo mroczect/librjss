@@ -6,31 +6,6 @@ use secrecy::{ExposeSecret, SecretString};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn mock_app_html(sitename: &str, full_name: &str, roles: Vec<&str>) -> String {
-    let roles_json: Vec<String> = roles.iter().map(|r| format!("\"{}\"", r)).collect();
-    let roles_str = roles_json.join(",");
-    format!(
-        r#"
-        <html>
-        <script>frappe.csrf_token = "mock_csrf_token";</script>
-        <script>
-        frappe.boot = {{
-            "user": {{
-                "name": "test@example.com",
-                "full_name": "{full_name}",
-                "roles": [{roles}]
-            }},
-            "sitename": "{sitename}"
-        }};
-        </script>
-        </html>
-        "#,
-        full_name = full_name,
-        roles = roles_str,
-        sitename = sitename
-    )
-}
-
 fn session_auth(email: &str, password: &str) -> AuthMode {
     AuthMode::Session {
         email: SecretString::new(Box::from(email.to_string())),
@@ -71,11 +46,34 @@ async fn mock_login_and_app(server: &MockServer) {
 
     Mock::given(method("GET"))
         .and(path("/app"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(mock_app_html(
-            "testsite",
-            "Test User",
-            vec!["System Manager"],
-        )))
+        .respond_with(ResponseTemplate::new(200).set_body_string(
+            r#"<html>
+            <script>frappe.csrf_token = "mock_csrf_token";</script>
+            <script>
+            frappe.boot = {
+                "user": {
+                    "name": "test@example.com",
+                    "full_name": "Test User",
+                    "roles": ["System Manager"],
+                    "can_read": ["ToDo"]
+                },
+                "sitename": "testsite",
+                "csrf_token": "mock_csrf_token",
+                "user_info": {},
+                "sidebar_pages": {"pages": [], "has_access": false, "has_create_access": false},
+                "navbar_settings": null,
+                "versions": {"frappe": "16.0.0"},
+                "lang_dict": {},
+                "lang": "en",
+                "page_info": {},
+                "frequently_visited_links": [],
+                "developer_mode": 0,
+                "read_only": false,
+                "desk_theme": "Light"
+            };
+            </script>
+            </html>"#,
+        ))
         .mount(server)
         .await;
 }
@@ -232,4 +230,18 @@ async fn test_ensure_session_valid() {
     client.authenticate().await.unwrap();
 
     client.ensure_session().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_boot_data_public_api() {
+    let server = MockServer::start().await;
+    mock_login_and_app(&server).await;
+    let mut client = setup_client(&server, session_auth("user", "pass")).await;
+    client.authenticate().await.unwrap();
+
+    assert!(client.boot().is_some());
+    assert!(!client.is_developer_mode());
+    assert!(!client.is_read_only());
+    assert!(client.frequent_links().unwrap().is_empty());
+    assert_eq!(client.versions().unwrap().get("frappe").unwrap(), "16.0.0");
 }
