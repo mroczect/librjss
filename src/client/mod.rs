@@ -115,4 +115,43 @@ impl RjssClient {
     pub async fn authenticated_delete(&self, path: &str) -> Result<String, JssError> {
         methods::delete::authenticated_delete(self, path).await
     }
+
+    pub fn user_info_map(
+        &self,
+    ) -> Option<&std::collections::HashMap<String, crate::handler::types::BootUserInfo>> {
+        self.boot.as_ref().map(|b| &b.user_info)
+    }
+
+    pub fn sidebar_pages(&self) -> Option<&crate::handler::types::SidebarPages> {
+        self.boot.as_ref().map(|b| &b.sidebar_pages)
+    }
+
+    pub fn navbar_settings(&self) -> Option<&crate::handler::types::NavbarSettings> {
+        self.boot.as_ref().and_then(|b| b.navbar_settings.as_ref())
+    }
+
+    pub fn versions(&self) -> Option<&std::collections::HashMap<String, String>> {
+        self.boot.as_ref().map(|b| &b.versions)
+    }
+
+    pub fn lang_dict(&self) -> Option<&std::collections::HashMap<String, String>> {
+        self.boot.as_ref().map(|b| &b.lang_dict)
+    }
+
+    pub fn frequent_links(&self) -> Option<&[crate::handler::types::FrequentLink]> {
+        self.boot
+            .as_ref()
+            .map(|b| b.frequently_visited_links.as_slice())
+    }
+
+    pub fn is_developer_mode(&self) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.developer_mode)
+            .unwrap_or(false)
+    }
+
+    pub fn is_read_only(&self) -> bool {
+        self.boot.as_ref().map(|b| b.read_only).unwrap_or(false)
+    }
 }
