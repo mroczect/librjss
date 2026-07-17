@@ -6,10 +6,7 @@ use tracing::{error, info, instrument};
 
 #[instrument(skip(client), fields(trace_id = client.trace_id))]
 pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JssError> {
-    let session = client
-        .session
-        .as_ref()
-        .ok_or(JssError::NotAuthenticated)?;
+    let session = client.session.as_ref().ok_or(JssError::NotAuthenticated)?;
     let csrf = session.csrf_token.expose_secret();
     let logout_url = RjssClient::logout_url(&client.config.base_url);
     let resp = client
