@@ -22,3 +22,8 @@ chrono = { version = "0.4", features = ["serde"] }
 backoff = { version = "0.4", features = ["tokio"] }
 http = "1"
 regex = "1"
+
+[dev-dependencies]
+wiremock = "0.5"
+tokio = { version = "1", features = ["macros", "rt"] }
+serde_json = "1"
