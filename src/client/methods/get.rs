@@ -4,7 +4,6 @@ use crate::client::auth::http_helpers::{
 };
 use crate::handler::error::JssError;
 use backoff::future::retry;
-use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
