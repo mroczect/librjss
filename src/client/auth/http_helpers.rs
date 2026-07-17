@@ -26,13 +26,15 @@ pub(crate) fn apply_auth_to_builder(
 }
 
 pub(crate) fn build_join_url(client: &RjssClient, path: &str) -> Result<reqwest::Url, JssError> {
-    if path.contains("..") {
+    let decoded = urlencoding::decode(path)
+        .map_err(|_| JssError::Validation("Invalid URL path encoding".into()))?;
+    if decoded.contains("..") {
         return Err(JssError::Validation("Path traversal not allowed".into()));
     }
     client
         .config
         .base_url
-        .join(path)
+        .join(&decoded)
         .map_err(|e| JssError::Parse(format!("URL join error: {e}")))
 }
 
@@ -45,7 +47,6 @@ pub(crate) fn backoff_config(client: &RjssClient) -> ExponentialBackoff {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn extract_retry_after(response: &Response) -> Option<u64> {
     response
         .headers()
@@ -54,7 +55,6 @@ pub(crate) fn extract_retry_after(response: &Response) -> Option<u64> {
         .and_then(|v| v.parse::<u64>().ok())
 }
 
-#[allow(dead_code)]
 pub(crate) fn classify_response(status: StatusCode, body: &str) -> backoff::Error<JssError> {
     if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
         let error = JssError::from_api_response(status, body);

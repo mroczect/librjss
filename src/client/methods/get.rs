@@ -1,5 +1,7 @@
 use crate::client::RjssClient;
-use crate::client::auth::http_helpers::{apply_auth_to_builder, backoff_config, build_join_url};
+use crate::client::auth::http_helpers::{
+    apply_auth_to_builder, backoff_config, build_join_url, classify_response,
+};
 use crate::handler::error::JssError;
 use backoff::future::retry;
 use reqwest::StatusCode;
@@ -25,17 +27,11 @@ pub(crate) async fn authenticated_get(client: &RjssClient, path: &str) -> Result
                 .await
                 .map_err(|e| backoff::Error::transient(JssError::Network(e)))?;
             let status = resp.status();
-            if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS {
+            if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
-                let error = JssError::from_api_response(status, &body);
-                Err(backoff::Error::transient(error))
-            } else if status == StatusCode::UNAUTHORIZED {
-                Err(backoff::Error::permanent(JssError::Auth(
-                    "Unauthorized".into(),
-                )))
-            } else {
-                Ok(resp)
+                return Err(classify_response(status, &body));
             }
+            Ok(resp)
         }
     };
 

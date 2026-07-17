@@ -5,7 +5,7 @@ use crate::handler::types::login::{LoginApiMessage, LoginApiResponse};
 use crate::handler::types::session::SessionInfo;
 use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use super::app_parser::{extract_app_data, fetch_app_page};
 
@@ -15,7 +15,7 @@ pub(crate) async fn login_with_credentials(
     email: SecretString,
     password: SecretString,
 ) -> Result<(), JssError> {
-    let login_url = RjssClient::login_url(&client.config.base_url);
+    let login_url = RjssClient::login_url(&client.config.base_url)?;
 
     let email_hash = format!("{:x}", Sha256::digest(email.expose_secret().as_bytes()));
     info!(trace_id = client.trace_id, email_hash = %email_hash, "Login attempt");
@@ -34,17 +34,17 @@ pub(crate) async fn login_with_credentials(
             .get("Retry-After")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse::<u64>().ok());
-        error!(trace_id = client.trace_id, "Rate limited");
+        warn!(trace_id = client.trace_id, "Rate limited");
         return Err(JssError::RateLimited { retry_after });
     }
     if status != reqwest::StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
-        error!(trace_id = client.trace_id, %status, %body, "Login failed");
+        warn!(trace_id = client.trace_id, %status, "Login failed");
         return Err(JssError::Auth(format!("Login failed: HTTP {status}")));
     }
 
     let body_text = resp.text().await?;
-    error!(trace_id = client.trace_id, %body_text, "Raw login response body");
+    trace!(trace_id = client.trace_id, %body_text, "Raw login response body");
     debug!(
         trace_id = client.trace_id,
         body_hash = format!("{:x}", Sha256::digest(body_text.as_bytes())),
@@ -55,7 +55,7 @@ pub(crate) async fn login_with_credentials(
         .map_err(|e| JssError::Parse(format!("Login response not valid JSON: {e}")))?;
 
     let login_resp = if v["message"].as_str() == Some("Logged In") {
-        warn!(
+        debug!(
             trace_id = client.trace_id,
             "Login response has string message 'Logged In'"
         );
@@ -86,13 +86,13 @@ pub(crate) async fn login_with_credentials(
 
     if let Some(expected) = &client.config.expected_sitename {
         if expected != &sitename {
-            error!(trace_id = client.trace_id, expected = %expected, actual = %sitename, "Sitename mismatch");
+            warn!(trace_id = client.trace_id, expected = %expected, actual = %sitename, "Sitename mismatch");
             return Err(JssError::SitenameMismatch {
                 expected: expected.clone(),
                 actual: sitename,
             });
         }
-        info!(trace_id = client.trace_id, sitename = %sitename, "Sitename verified");
+        debug!(trace_id = client.trace_id, sitename = %sitename, "Sitename verified");
     }
 
     if !client.config.required_roles.is_empty() {
@@ -102,7 +102,7 @@ pub(crate) async fn login_with_credentials(
             .iter()
             .any(|r| roles.contains(r));
         if !has_role {
-            error!(trace_id = client.trace_id, ?roles, required = ?client.config.required_roles, "Missing required roles");
+            warn!(trace_id = client.trace_id, ?roles, required = ?client.config.required_roles, "Missing required roles");
             return Err(JssError::Permission(format!(
                 "Missing one of required roles: {:?}",
                 client.config.required_roles

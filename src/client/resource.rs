@@ -118,7 +118,6 @@ impl<'a> ResourceBuilder<'a> {
             };
 
             let response: serde_json::Value = builder.execute().await?;
-
             let data = response["data"].as_array().cloned().unwrap_or_default();
             if data.is_empty() {
                 break;
