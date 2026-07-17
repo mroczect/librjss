@@ -72,18 +72,14 @@ impl RjssClient {
             body_hash = format!("{:x}", Sha256::digest(body_text.as_bytes())),
             "Login response received"
         );
-        let v: serde_json::Value = serde_json::from_str(&body_text).map_err(|e| {
-            error!(
-                trace_id = self.trace_id,
-                "Login response not valid JSON: {}", e
-            );
-            JuraganError::Parse(format!("Login response not valid JSON: {e}"))
-        })?;
+
+        let v: serde_json::Value = serde_json::from_str(&body_text)
+            .map_err(|e| JuraganError::Parse(format!("Login response not valid JSON: {e}")))?;
 
         let login_resp = if v["message"].as_str() == Some("Logged In") {
             warn!(
                 trace_id = self.trace_id,
-                "Login response has string message 'Logged In', treating as success"
+                "Login response has string message 'Logged In'"
             );
             LoginApiResponse {
                 message: crate::handler::types::LoginApiMessage {
@@ -92,40 +88,33 @@ impl RjssClient {
                 },
             }
         } else {
-            serde_json::from_value::<LoginApiResponse>(v).map_err(|e| {
-                error!(
-                    trace_id = self.trace_id,
-                    "Failed to parse login response: {}", e
-                );
-                JuraganError::Parse(format!("Failed to parse login response: {e}"))
-            })?
+            serde_json::from_value::<LoginApiResponse>(v)
+                .map_err(|e| JuraganError::Parse(format!("Failed to parse login response: {e}")))?
         };
 
-        let sid = SecretString::new(Box::from(login_resp.message.sid));
-        let csrf_token = self.obtain_csrf_token().await?;
-        let user_info = self.fetch_user_info().await?;
+        let app_html = self.fetch_app_page().await?;
+        let (csrf_token, boot_data) = self.extract_app_data(&app_html)?;
 
-        if let Some(expected_sitename) = &self.config.expected_sitename {
-            let actual = self.fetch_sitename_from_app().await?;
-            if expected_sitename != &actual {
-                error!(trace_id = self.trace_id, expected = %expected_sitename, actual = %actual, "Sitename mismatch");
+        let user = &boot_data.user;
+        let roles = user.roles.clone();
+        let full_name = user.full_name.clone().or(login_resp.message.full_name);
+        let sitename = boot_data.sitename.clone();
+
+        if let Some(expected) = &self.config.expected_sitename {
+            if expected != &sitename {
+                error!(trace_id = self.trace_id, expected = %expected, actual = %sitename, "Sitename mismatch");
                 return Err(JuraganError::SitenameMismatch {
-                    expected: expected_sitename.clone(),
-                    actual,
+                    expected: expected.clone(),
+                    actual: sitename,
                 });
             }
-            info!(trace_id = self.trace_id, sitename = %actual, "Sitename verified");
+            info!(trace_id = self.trace_id, sitename = %sitename, "Sitename verified");
         }
 
         if !self.config.required_roles.is_empty() {
-            let user_roles = &user_info.message.roles;
-            let has_role = self
-                .config
-                .required_roles
-                .iter()
-                .any(|r| user_roles.contains(r));
+            let has_role = self.config.required_roles.iter().any(|r| roles.contains(r));
             if !has_role {
-                error!(trace_id = self.trace_id, ?user_roles, required = ?self.config.required_roles, "Missing required roles");
+                error!(trace_id = self.trace_id, ?roles, required = ?self.config.required_roles, "Missing required roles");
                 return Err(JuraganError::Permission(format!(
                     "Missing one of required roles: {:?}",
                     self.config.required_roles
@@ -134,11 +123,11 @@ impl RjssClient {
         }
 
         self.session = Some(SessionInfo {
-            sid,
+            sid: SecretString::new(Box::from(login_resp.message.sid)),
             csrf_token,
-            full_name: login_resp.message.full_name,
-            sitename: self.config.expected_sitename.clone().unwrap_or_default(),
-            roles: user_info.message.roles,
+            full_name,
+            sitename,
+            roles,
         });
 
         info!(trace_id = self.trace_id, email_hash = %email_hash, "Login successful");
@@ -192,6 +181,51 @@ impl RjssClient {
             error!(trace_id = self.trace_id, "Sitename not found in /app");
             Err(JuraganError::Parse("Sitename not found in /app".into()))
         }
+    }
+    async fn fetch_app_page(&self) -> Result<String, JuraganError> {
+        let app_url = Self::app_page_url(&self.config.base_url);
+        let resp = self.http.get(app_url).send().await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        error!(trace_id = self.trace_id, %status, %body, "Raw /app response");
+        if !status.is_success() {
+            return Err(JuraganError::Auth("Failed to load /app".into()));
+        }
+        Ok(body)
+    }
+
+    fn extract_app_data(
+        &self,
+        html: &str,
+    ) -> Result<(SecretString, crate::handler::types::FrappeBoot), JuraganError> {
+        let document = Html::parse_document(html);
+
+        let selector = Selector::parse("script").unwrap();
+        let mut csrf_token = String::new();
+        for script in document.select(&selector) {
+            let text = script.inner_html();
+            if let Some(pos) = text.find("frappe.csrf_token") {
+                if let Some(start) = text[pos..].find('"') {
+                    let start = pos + start + 1;
+                    if let Some(end) = text[start..].find('"') {
+                        csrf_token = text[start..start + end].to_string();
+                        break;
+                    }
+                }
+            }
+        }
+
+        let re = regex::Regex::new(r"frappe\.boot\s*=\s*(\{.*?\});\s*\n")
+            .map_err(|_| JuraganError::Parse("Regex compilation error".into()))?;
+        let caps = re.captures(html).ok_or(JuraganError::Parse(
+            "Could not find frappe.boot object in /app".into(),
+        ))?;
+        let boot_json = caps.get(1).unwrap().as_str();
+
+        let boot: crate::handler::types::FrappeBoot = serde_json::from_str(boot_json)
+            .map_err(|e| JuraganError::Parse(format!("Failed to parse frappe.boot: {e}")))?;
+
+        Ok((SecretString::new(Box::from(csrf_token)), boot))
     }
 
     #[instrument(skip(self), fields(trace_id = self.trace_id))]
