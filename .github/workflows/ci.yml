@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-
+
+      - name: Check code format
+        run: cargo fmt --all -- --check
+
+      - name: Check compilation
+        run: cargo check --workspace
+
+      - name: Run unit tests (without server)
+        run: cargo test --lib
+
+      - name: Start mock server
+        run: |
+          cargo build --example jss_mock_server
+          ./target/debug/examples/jss_mock_server &
+          echo $! > mock_server.pid
+          sleep 2
+          curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/ | grep 200
+
+      - name: Run integration tests against mock server
+        env:
+          JSS_BASE_URL: http://localhost:8080
+          JSS_EMAIL: dev@example.com
+          JSS_PASSWORD: password123
+          JSS_INSECURE_SSL: "true"
+        run: cargo test --test '*' -- --nocapture
+
+      - name: Stop mock server
+        if: always()
+        run: |
+          if [ -f mock_server.pid ]; then
+            kill $(cat mock_server.pid) || true
+            rm mock_server.pid
+          fi
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: librjss-cli
+          path: target/release/cli_auth
