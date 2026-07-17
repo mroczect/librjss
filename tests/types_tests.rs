@@ -72,3 +72,38 @@ fn test_frappe_boot_default() {
     assert_eq!(boot.csrf_token, "");
     assert!(boot.user.name.is_empty());
 }
+
+#[test]
+fn test_frappe_boot_with_permissions() {
+    let data = json!({
+        "user": {
+            "name": "testuser",
+            "full_name": "Test User",
+            "roles": ["System Manager"],
+            "can_read": ["ToDo", "Customer"],
+            "can_write": ["ToDo"]
+        },
+        "sitename": "testsite",
+        "csrf_token": "test_csrf",
+        "can_read": ["ToDo", "Customer"],
+        "all_reports": {
+            "Test Report": {
+                "title": "Test Report",
+                "ref_doctype": "ToDo",
+                "report_type": "Script Report"
+            }
+        },
+        "dashboards": [{"name": "My Dashboard"}],
+        "single_types": ["System Settings"],
+        "calendars": ["Event"],
+        "treeviews": []
+    });
+    let boot: FrappeBoot = serde_json::from_value(data).unwrap();
+    assert_eq!(boot.sitename, "testsite");
+    assert_eq!(boot.csrf_token, "test_csrf");
+    assert_eq!(boot.user.can_read.len(), 2);
+    assert_eq!(boot.all_reports.len(), 1);
+    assert_eq!(boot.dashboards.len(), 1);
+    assert_eq!(boot.single_types.len(), 1);
+    assert_eq!(boot.calendars.len(), 1);
+}
