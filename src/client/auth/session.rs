@@ -13,7 +13,7 @@ pub(crate) async fn ensure_session(client: &mut RjssClient) -> Result<(), JssErr
                 return Err(JssError::NotAuthenticated);
             }
         } else {
-            let url = RjssClient::get_logged_user_url(&client.config.base_url);
+            let url = RjssClient::get_logged_user_url(&client.config.base_url)?;
             let resp = client.http.get(url).send().await?;
             if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
                 warn!(trace_id = client.trace_id, "Session expired, will re-login");
