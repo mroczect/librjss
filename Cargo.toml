@@ -28,3 +28,4 @@ scraper = "0.18"
 wiremock = "0.5"
 tokio = { version = "1", features = ["macros", "rt"] }
 serde_json = "1"
+axum = "0.8.9"
