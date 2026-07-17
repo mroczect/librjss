@@ -1,6 +1,5 @@
 use reqwest::Url;
 
-/// Trait defining URL endpoints for authentication operations.
 pub trait AuthEndpoints {
     fn login_url(base: &Url) -> Url {
         base.join("/api/method/login").unwrap()
