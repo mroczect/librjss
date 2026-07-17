@@ -54,4 +54,7 @@ impl RjssClient {
     pub fn trace_id(&self) -> &str {
         &self.trace_id
     }
+    pub fn session_info(&self) -> Option<&SessionInfo> {
+        self.session.as_ref()
+    }
 }
