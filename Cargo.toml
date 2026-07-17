@@ -12,7 +12,6 @@ serde_json = "1"
 thiserror = "2"
 url = { version = "2", features = ["serde"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
@@ -22,8 +21,13 @@ chrono = { version = "0.4", features = ["serde"] }
 backoff = { version = "0.4", features = ["tokio"] }
 http = "1"
 regex = "1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
 wiremock = "0.5"
 tokio = { version = "1", features = ["macros", "rt"] }
 serde_json = "1"
+
+[[bin]]
+name = "librjss_exm_auth_cli"
+path = "examples/cli_auth.rs"
