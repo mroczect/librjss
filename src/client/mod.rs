@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::api::auth::AuthEndpoints;
 use crate::handler::config::ClientConfig;
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use crate::handler::types::SessionInfo;
 
 pub struct RjssClient {
@@ -25,7 +25,7 @@ pub struct RjssClient {
 impl AuthEndpoints for RjssClient {}
 
 impl RjssClient {
-    pub fn new(config: ClientConfig) -> Result<Self, JuraganError> {
+    pub fn new(config: ClientConfig) -> Result<Self, JssError> {
         config.validate()?;
 
         let cookie_jar = Arc::new(Jar::default());
@@ -63,7 +63,7 @@ impl RjssClient {
         self.session.as_ref()
     }
 
-    pub async fn authenticate(&mut self) -> Result<(), JuraganError> {
+    pub async fn authenticate(&mut self) -> Result<(), JssError> {
         match self.config.auth_mode.clone() {
             crate::handler::config::AuthMode::Session { email, password } => {
                 self.credentials = Some((email.clone(), password.clone()));
@@ -78,15 +78,15 @@ impl RjssClient {
         }
     }
 
-    pub async fn logout(&mut self) -> Result<(), JuraganError> {
+    pub async fn logout(&mut self) -> Result<(), JssError> {
         auth::logout::logout(self).await
     }
 
-    pub async fn ensure_session(&mut self) -> Result<(), JuraganError> {
+    pub async fn ensure_session(&mut self) -> Result<(), JssError> {
         auth::session::ensure_session(self).await
     }
 
-    pub async fn authenticated_get(&self, path: &str) -> Result<String, JuraganError> {
+    pub async fn authenticated_get(&self, path: &str) -> Result<String, JssError> {
         methods::get::authenticated_get(self, path).await
     }
 
@@ -94,7 +94,7 @@ impl RjssClient {
         &self,
         path: &str,
         body_json: &str,
-    ) -> Result<String, JuraganError> {
+    ) -> Result<String, JssError> {
         methods::post::authenticated_post(self, path, body_json).await
     }
 
@@ -102,11 +102,11 @@ impl RjssClient {
         &self,
         path: &str,
         body_json: &str,
-    ) -> Result<String, JuraganError> {
+    ) -> Result<String, JssError> {
         methods::put::authenticated_put(self, path, body_json).await
     }
 
-    pub async fn authenticated_delete(&self, path: &str) -> Result<String, JuraganError> {
+    pub async fn authenticated_delete(&self, path: &str) -> Result<String, JssError> {
         methods::delete::authenticated_delete(self, path).await
     }
 }

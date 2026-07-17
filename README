@@ -40,7 +40,7 @@ Project layout
       methods/         authenticated_get, post, put, delete
     handler/
       config/          AuthMode, ClientConfig, validation
-      error.rs         JuraganError enum
+      error.rs         JssError enum
       types/           FrappeBoot, SessionInfo, login/user info
 
   examples/
@@ -62,15 +62,15 @@ Core concepts
   RjssClient
     Central client holding configuration, HTTP client, session, and
     credentials. Public API:
-      new(config) -> Result<Self, JuraganError>
-      authenticate() -> Result<(), JuraganError>
-      logout() -> Result<(), JuraganError>
-      ensure_session() -> Result<(), JuraganError>
+      new(config) -> Result<Self, JssError>
+      authenticate() -> Result<(), JssError>
+      logout() -> Result<(), JssError>
+      ensure_session() -> Result<(), JssError>
       session_info() -> Option<&SessionInfo>
-      authenticated_get(path) -> Result<String, JuraganError>
-      authenticated_post(path, json) -> Result<String, JuraganError>
-      authenticated_put(path, json) -> Result<String, JuraganError>
-      authenticated_delete(path) -> Result<String, JuraganError>
+      authenticated_get(path) -> Result<String, JssError>
+      authenticated_post(path, json) -> Result<String, JssError>
+      authenticated_put(path, json) -> Result<String, JssError>
+      authenticated_delete(path) -> Result<String, JssError>
 
   AuthMode (enum)
     Session { email: SecretString, password: SecretString }
@@ -85,9 +85,9 @@ Core concepts
     max_retries: u32            (default 3)
     user_agent: String
     insecure_ssl: bool          (default false)
-    Method: validate() -> Result<(), JuraganError>
+    Method: validate() -> Result<(), JssError>
 
-  JuraganError (enum)
+  JssError (enum)
     Config(String)
     Validation(String)
     Network(reqwest::Error)

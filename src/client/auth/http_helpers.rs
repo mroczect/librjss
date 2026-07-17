@@ -1,6 +1,6 @@
 use crate::client::RjssClient;
 use crate::handler::config::AuthMode;
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use backoff::ExponentialBackoff;
 use reqwest::RequestBuilder;
 use secrecy::ExposeSecret;
@@ -26,9 +26,9 @@ pub(crate) fn apply_auth_to_builder(
 pub(crate) fn build_join_url(
     client: &RjssClient,
     path: &str,
-) -> Result<reqwest::Url, JuraganError> {
+) -> Result<reqwest::Url, JssError> {
     if path.contains("..") {
-        return Err(JuraganError::Validation(
+        return Err(JssError::Validation(
             "Path traversal not allowed".into(),
         ));
     }
@@ -36,7 +36,7 @@ pub(crate) fn build_join_url(
         .config
         .base_url
         .join(path)
-        .map_err(|e| JuraganError::Parse(format!("URL join error: {e}")))
+        .map_err(|e| JssError::Parse(format!("URL join error: {e}")))
 }
 
 pub(crate) fn backoff_config(client: &RjssClient) -> ExponentialBackoff {

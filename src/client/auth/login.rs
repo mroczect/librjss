@@ -1,6 +1,6 @@
 use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use crate::handler::types::login::{LoginApiMessage, LoginApiResponse};
 use crate::handler::types::session::SessionInfo;
 use secrecy::{ExposeSecret, SecretString};
@@ -14,7 +14,7 @@ pub(crate) async fn login_with_credentials(
     client: &mut RjssClient,
     email: SecretString,
     password: SecretString,
-) -> Result<(), JuraganError> {
+) -> Result<(), JssError> {
     let login_url = RjssClient::login_url(&client.config.base_url);
 
     let email_hash = format!("{:x}", Sha256::digest(email.expose_secret().as_bytes()));
@@ -30,12 +30,12 @@ pub(crate) async fn login_with_credentials(
     let status = resp.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         error!(trace_id = client.trace_id, "Rate limited");
-        return Err(JuraganError::RateLimited);
+        return Err(JssError::RateLimited);
     }
     if status != reqwest::StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
         error!(trace_id = client.trace_id, %status, %body, "Login failed");
-        return Err(JuraganError::Auth(format!("Login failed: HTTP {status}")));
+        return Err(JssError::Auth(format!("Login failed: HTTP {status}")));
     }
 
     let body_text = resp.text().await?;
@@ -47,7 +47,7 @@ pub(crate) async fn login_with_credentials(
     );
 
     let v: serde_json::Value = serde_json::from_str(&body_text)
-        .map_err(|e| JuraganError::Parse(format!("Login response not valid JSON: {e}")))?;
+        .map_err(|e| JssError::Parse(format!("Login response not valid JSON: {e}")))?;
 
     let login_resp = if v["message"].as_str() == Some("Logged In") {
         warn!(
@@ -62,7 +62,7 @@ pub(crate) async fn login_with_credentials(
         }
     } else {
         serde_json::from_value::<LoginApiResponse>(v)
-            .map_err(|e| JuraganError::Parse(format!("Failed to parse login response: {e}")))?
+            .map_err(|e| JssError::Parse(format!("Failed to parse login response: {e}")))?
     };
 
     let app_html = fetch_app_page(client).await?;
@@ -80,7 +80,7 @@ pub(crate) async fn login_with_credentials(
     if let Some(expected) = &client.config.expected_sitename {
         if expected != &sitename {
             error!(trace_id = client.trace_id, expected = %expected, actual = %sitename, "Sitename mismatch");
-            return Err(JuraganError::SitenameMismatch {
+            return Err(JssError::SitenameMismatch {
                 expected: expected.clone(),
                 actual: sitename,
             });
@@ -96,7 +96,7 @@ pub(crate) async fn login_with_credentials(
             .any(|r| roles.contains(r));
         if !has_role {
             error!(trace_id = client.trace_id, ?roles, required = ?client.config.required_roles, "Missing required roles");
-            return Err(JuraganError::Permission(format!(
+            return Err(JssError::Permission(format!(
                 "Missing one of required roles: {:?}",
                 client.config.required_roles
             )));

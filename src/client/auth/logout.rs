@@ -1,15 +1,15 @@
 use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
-use crate::handler::error::JuraganError;
+use crate::handler::error::JssError;
 use secrecy::ExposeSecret;
 use tracing::{error, info, instrument};
 
 #[instrument(skip(client), fields(trace_id = client.trace_id))]
-pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JuraganError> {
+pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JssError> {
     let session = client
         .session
         .as_ref()
-        .ok_or(JuraganError::NotAuthenticated)?;
+        .ok_or(JssError::NotAuthenticated)?;
     let csrf = session.csrf_token.expose_secret();
     let logout_url = RjssClient::logout_url(&client.config.base_url);
     let resp = client
@@ -27,6 +27,6 @@ pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JuraganError> 
     } else {
         let body = resp.text().await.unwrap_or_default();
         error!(trace_id = client.trace_id, %status, %body, "Logout failed");
-        Err(JuraganError::Http { status, body })
+        Err(JssError::Http { status, body })
     }
 }

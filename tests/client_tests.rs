@@ -1,6 +1,6 @@
 use librjss::RjssClient;
 use librjss::handler::config::{AuthMode, ClientConfig};
-use librjss::handler::error::JuraganError;
+use librjss::handler::error::JssError;
 use reqwest::Url;
 use secrecy::{ExposeSecret, SecretString};
 use wiremock::matchers::{method, path};
@@ -117,7 +117,7 @@ async fn test_authenticate_rate_limited() {
 
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     let result = client.authenticate().await;
-    assert!(matches!(result, Err(JuraganError::RateLimited)));
+    assert!(matches!(result, Err(JssError::RateLimited)));
 }
 
 #[tokio::test]
@@ -132,7 +132,7 @@ async fn test_authenticate_login_http_error() {
 
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     let result = client.authenticate().await;
-    assert!(matches!(result, Err(JuraganError::Auth(_))));
+    assert!(matches!(result, Err(JssError::Auth(_))));
 }
 
 #[tokio::test]
@@ -186,7 +186,7 @@ async fn test_authenticated_request_path_traversal() {
     let server = MockServer::start().await;
     let client = setup_client(&server, token_auth("k", "s")).await;
     let result = client.authenticated_get("/../etc/passwd").await;
-    assert!(matches!(result, Err(JuraganError::Validation(_))));
+    assert!(matches!(result, Err(JssError::Validation(_))));
 }
 
 #[tokio::test]
@@ -213,7 +213,7 @@ async fn test_logout_not_authenticated() {
     let server = MockServer::start().await;
     let mut client = setup_client(&server, session_auth("user", "pass")).await;
     let result = client.logout().await;
-    assert!(matches!(result, Err(JuraganError::NotAuthenticated)));
+    assert!(matches!(result, Err(JssError::NotAuthenticated)));
 }
 
 #[tokio::test]
