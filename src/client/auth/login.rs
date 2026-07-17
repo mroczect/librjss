@@ -29,8 +29,13 @@ pub(crate) async fn login_with_credentials(
 
     let status = resp.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = resp
+            .headers()
+            .get("Retry-After")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
         error!(trace_id = client.trace_id, "Rate limited");
-        return Err(JssError::RateLimited);
+        return Err(JssError::RateLimited { retry_after });
     }
     if status != reqwest::StatusCode::OK {
         let body = resp.text().await.unwrap_or_default();
@@ -67,6 +72,8 @@ pub(crate) async fn login_with_credentials(
 
     let app_html = fetch_app_page(client).await?;
     let (csrf_token, boot_data) = extract_app_data(&app_html)?;
+
+    client.boot = Some(boot_data.clone());
 
     let user = &boot_data.user;
     let roles = user.roles.clone();

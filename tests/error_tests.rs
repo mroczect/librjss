@@ -1,3 +1,4 @@
+use http::StatusCode;
 use librjss::handler::error::JssError;
 
 #[test]
@@ -24,5 +25,36 @@ async fn test_network_from_reqwest() {
     match e {
         JssError::Network(_) => {}
         _ => panic!("expected Network variant"),
+    }
+}
+
+#[test]
+fn test_from_api_response_valid_frappe_error() {
+    let body = r#"{"exc_type":"ValidationError","exc":"Invalid data"}"#;
+    let err = JssError::from_api_response(StatusCode::BAD_REQUEST, body);
+    match err {
+        JssError::ApiError {
+            exc_type,
+            message,
+            status,
+        } => {
+            assert_eq!(exc_type, "ValidationError");
+            assert_eq!(message, "Invalid data");
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+        }
+        _ => panic!("Expected ApiError"),
+    }
+}
+
+#[test]
+fn test_from_api_response_fallback() {
+    let body = "plain text error";
+    let err = JssError::from_api_response(StatusCode::INTERNAL_SERVER_ERROR, body);
+    match err {
+        JssError::Http { status, body } => {
+            assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(body, "plain text error");
+        }
+        _ => panic!("Expected Http error"),
     }
 }

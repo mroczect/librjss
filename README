@@ -5,7 +5,7 @@ librjss
   with automatic CSRF token extraction, retry logic, and full diagnostic
   tracing.
 
-  Version: 1.1.0   License: MIT   Status: Early development
+  Version: 1.2.0   License: MIT   Status: Early development
 
 ----------------------------------------------------------------
 Installation
