@@ -1,7 +1,6 @@
-use reqwest::Url;
 use crate::handler::config::auth_mode::AuthMode;
+use reqwest::Url;
 
-/// Configuration for connecting to a JSS instance.
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     pub base_url: Url,
