@@ -1,6 +1,6 @@
 [package]
 name = "librjss"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2024"
 description = "Robust client library for Juragan Subsystem"
 license = "MIT"
