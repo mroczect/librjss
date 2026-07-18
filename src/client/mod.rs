@@ -7,6 +7,7 @@ pub mod resource;
 use reqwest::Client as ReqwestClient;
 use reqwest::Url;
 use reqwest::cookie::Jar;
+use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use std::sync::Arc;
 use tracing::info;
@@ -390,5 +391,42 @@ impl RjssClient {
     pub async fn get_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError> {
         let form = [("docname", docname), ("tab", tab)];
         self.post_form("/api/method/juragan.ops.doctype.master_data_nasabah.master_data_nasabah.get_lazy_child_rows", &form).await
+    }
+
+    pub async fn download_print_format(
+        &self,
+        doctype: &str,
+        name: &str,
+        format: &str,
+    ) -> Result<Vec<u8>, JssError> {
+        let url = self
+            .config
+            .base_url
+            .join("/api/method/frappe.utils.print_format.download_pdf")
+            .map_err(|e| JssError::Parse(format!("Invalid PDF URL: {e}")))?;
+
+        let form = [("doctype", doctype), ("name", name), ("format", format)];
+
+        let mut req = self.http.post(url).form(&form);
+
+        if let Some(session) = &self.session {
+            let csrf = session.csrf_token.expose_secret();
+            if !csrf.is_empty() {
+                req = req.header("X-Frappe-CSRF-Token", csrf);
+            }
+        }
+
+        req = crate::client::auth::http_helpers::apply_auth_to_builder(&self.config.auth_mode, req);
+
+        let resp = req.send().await?;
+        let status = resp.status();
+
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(JssError::from_api_response(status, &body));
+        }
+
+        let bytes = resp.bytes().await?;
+        Ok(bytes.to_vec())
     }
 }
