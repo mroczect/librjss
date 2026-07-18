@@ -6,7 +6,7 @@ pub(crate) fn setup_token_session(expected_sitename: Option<String>) -> SessionI
     info!("Using token API key");
     SessionInfo {
         sid: SecretString::new(Box::from("token-mode")),
-        csrf_token: SecretString::new(Box::from("not-used")),
+        csrf_token: SecretString::new(Box::from("")),
         full_name: None,
         sitename: expected_sitename.unwrap_or_default(),
         roles: vec![],
