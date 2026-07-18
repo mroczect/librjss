@@ -1,10 +1,8 @@
-name: Deploy Manpage to GitHub Pages
+name: Deploy man page to GitHub Pages
 
 on:
   push:
-    branches: [ master ]
-    paths:
-      - 'docs/librjss.3'
+    branches: ["master", "main"]
   workflow_dispatch:
 
 permissions:
@@ -12,42 +10,50 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install mandoc
-        run: sudo apt-get update && sudo apt-get install -y mandoc
-
-      - name: Buat direktori output
-        run: mkdir -p _site
-
-      - name: Generate HTML dari manpage
-        run: mandoc -Thtml docs/librjss.3 > _site/index.html
-
-      - name: Tambahkan CSS biar tampilan lebih rapi (opsional)
-        run: |
-          cat >> _site/index.html << 'EOF'
-          <style>
-            body { font-family: monospace; max-width: 80ch; margin: 2em auto; padding: 0 1em; line-height: 1.5; }
-          </style>
-          EOF
-
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: './_site'          # hanya folder _site yang diunggah
+      - name: Install groff
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y groff
 
-      - name: Deploy ke GitHub Pages
+      - name: Find man page file
+        id: manpage
+        run: |
+          MANFILE=$(ls docs/librjss.3 | head -1)
+          if [ -z "$MANFILE" ]; then
+            echo "Error: No man page found in manual/"
+            exit 1
+          fi
+          echo "path=$MANFILE" >> $GITHUB_OUTPUT
+          echo "file=$(basename $MANFILE)" >> $GITHUB_OUTPUT
+
+      - name: Convert man page to HTML
+        run: |
+          mkdir -p public
+          groff -mandoc -Thtml ${{ steps.manpage.outputs.path }} > public/index.html
+          echo '<style>body{font-family:monospace; max-width:80ch; margin:2em auto; padding:0 1em;}</style>' >> public/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: "./public"
+
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
