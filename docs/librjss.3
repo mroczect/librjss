@@ -1,25 +1,22 @@
-.TH LIBRJSS 3 "January 2026" "librjss 2.0.0" "Library Functions Manual"
+.TH LIBRJSS 3 "July 2026" "librjss 2.1.0" "Library Functions Manual"
 .SH NAME
-librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs
+librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs.
 .SH SYNOPSIS
 .SS Cargo dependency
-.PP
 .nf
-\fB[dependencies]\fP
-\fBlibrjss = { git = "https://github.com/mroczect/librjss.git" }\fP
+\fB[dependencies]\fR
+\fBlibrjss = { git = "https://github.com/mroczect/librjss.git" }\fR
 .fi
 .SS Import in Rust code
-.PP
 .nf
-\fBuse librjss::{\fP
-    \fBRjssClient, ClientConfig, AuthMode, JssError,\fP
-    \fBSessionInfo, FrappeBoot, BootUser, BootUserInfo,\fP
-    \fBSidebarPages, NavbarSettings, FrequentLink,\fP
-    \fBUserInfo, ReportMeta, AppData,\fP
-\fB};\fP
+\fBuse librjss::{\fR
+    \fBRjssClient, ClientConfig, AuthMode, JssError,\fR
+    \fBSessionInfo, FrappeBoot, BootUser, BootUserInfo,\fR
+    \fBSidebarPages, NavbarSettings, FrequentLink,\fR
+    \fBUserInfo, ReportMeta, AppData,\fR
+\fB};\fR
 .fi
 .SH DESCRIPTION
-.PP
 \fBlibrjss\fR provides full access to a JSS (Frappe/ERPNext) server.
 It supports:
 .IP \[bu] 2
@@ -45,7 +42,6 @@ Central struct holding configuration, HTTP client, session, credentials, and boo
 .PP
 \fBConstructor:\fR
 .RS 4
-.PP
 \fBRjssClient::new(config: ClientConfig) -> Result<Self, JssError>\fR
 .br
 Validates configuration, builds a reqwest client with a cookie jar, timeout, and user-agent.
@@ -86,6 +82,9 @@ Unique UUID v4 identifier for tracing/logging.
 .TP
 \fBauthenticated_delete(&self, path: &str) -> Result<String, JssError>\fR
 Each sends the corresponding HTTP request to the path joined with base_url. They attach the appropriate authorization header (token or CSRF) and handle retry with exponential backoff.
+.TP
+\fBpost_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError>\fR
+Sends a POST request with \fBapplication/x-www-form-urlencoded\fR body. Useful for APIs like global search, link search, and workflow transitions.
 .PP
 \fBFile operations:\fR
 .TP
@@ -123,6 +122,56 @@ Deletes a document.
 \fBcall_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>\fR
 Calls a whitelisted server method (e.g., \fBfrappe.email.send\fR) with optional arguments. The body is sent as a JSON POST.
 .PP
+\fBFrappe-specific convenience methods:\fR
+.TP
+\fBglobal_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>\fR
+Performs a global search like the Frappe navbar. Uses \fBfrappe.utils.global_search.search\fR.
+.TP
+\fBsearch_link(&self, txt: &str, doctype: &str, reference_doctype: &str, page_length: u32) -> Result<String, JssError>\fR
+Autocomplete for link fields. Calls \fBfrappe.desk.search.search_link\fR.
+.TP
+\fBget_transitions(&self, doc_json: &str) -> Result<String, JssError>\fR
+Gets workflow transitions for a document. Calls \fBfrappe.model.workflow.get_transitions\fR.
+.TP
+\fBsave_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>\fR
+Saves user-specific settings for a doctype. Calls \fBfrappe.model.utils.user_settings.save\fR.
+.TP
+\fBget_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssError>\fR
+Gets record count. Calls \fBfrappe.desk.reportview.get_count\fR.
+.TP
+\fBget_list(&self, doctype: &str, fields_json: &str, filters_json: &str, or_filters_json: &str, order_by: &str, start: u32, page_length: u32, view: &str, group_by: &str, with_comment_count: bool) -> Result<String, JssError>\fR
+Gets a list of documents with complex filters. Calls \fBfrappe.desk.reportview.get_list\fR.
+.TP
+\fBget_list_settings(&self, doctype: &str) -> Result<String, JssError>\fR
+Gets list view settings for a doctype. Calls \fBfrappe.desk.listview.get_list_settings\fR.
+.TP
+\fBget_doctype_meta(&self, doctype: &str) -> Result<String, JssError>\fR
+Loads doctype metadata. Calls \fBfrappe.desk.form.load.getdoctype\fR.
+.TP
+\fBfile_list(&self, folder: &str, limit: u32, extra_filters: Option<Vec<(&str, &str, &str, &str)>>) -> Result<String, JssError>\fR
+Lists files in a folder with optional extra filters. Uses the resource API.
+.TP
+\fBget_doc_json(&self, doctype: &str, name: &str) -> Result<serde_json::Value, JssError>\fR
+Shortcut to get a single document as \fBserde_json::Value\fR.
+.TP
+\fBdoctype_list_json(&self, doctype: &str, fields: Option<Vec<&str>>, filters: Vec<(&str, &str, &str)>, limit: u32, start: u32, order_by: Option<&str>) -> Result<serde_json::Value, JssError>\fR
+Shortcut to list documents as \fBserde_json::Value\fR.
+.TP
+\fBrun_report(&self, report_name: &str, filters: serde_json::Value) -> Result<String, JssError>\fR
+Runs a query report. Calls \fBfrappe.desk.query_report.run\fR.
+.TP
+\fBget_notifications(&self, limit: u32) -> Result<String, JssError>\fR
+Gets notification logs for the current user.
+.TP
+\fBget_events(&self, start: &str, end: &str) -> Result<String, JssError>\fR
+Gets calendar events for a date range.
+.TP
+\fBget_desktop_page(&self, name: &str, title: &str, public: bool) -> Result<String, JssError>\fR
+Gets desktop page (workspace) data. Calls \fBfrappe.desk.desktop.get_desktop_page\fR.
+.TP
+\fBget_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>\fR
+JSS-specific: loads lazy child table rows. Calls \fBget_lazy_child_rows\fR.
+.PP
 \fBBoot data convenience accessors:\fR
 .TP
 \fBuser_info_map(&self) -> Option<&HashMap<String, BootUserInfo>>\fR
@@ -142,8 +191,6 @@ Returns true when \fBdeveloper_mode != 0\fR in the boot data.
 .TP
 \fBis_read_only(&self) -> bool\fR
 Directly from the \fBread_only\fR field in boot data.
-.PP
-\fBTrait implementation:\fR \fBAuthEndpoints\fR is implemented for \fBRjssClient\fR, allowing static URL builders to be called through the type.
 .SS AuthMode (enum)
 Authentication strategy selection.
 .PP
@@ -241,7 +288,6 @@ Data structure deserialized from the JavaScript \fBfrappe.boot\fR object on the 
 .PP
 \fBFrappeBoot\fR:
 .RS 4
-.PP
 .nf
 \fBpub user: BootUser,\fR
 \fBpub sitename: String,\fR
@@ -344,10 +390,6 @@ Executes and deserializes into \fIT\fR.
 .TP
 \fBasync all<T: DeserializeOwned>(&self) -> Result<Vec<T>, JssError>\fR
 Automatically paginates with a page size of 200, collecting all records into a \fBVec<T>\fR.
-.SS Additional public types
-\fBUserInfo\fR: \fB{ message: UserInfoMessage }\fR, where \fBUserInfoMessage\fR has \fBname\fR, \fBemail: Option<String>\fR, \fBroles: Vec<String>\fR.
-.PP
-\fBLoginApiResponse\fR and \fBLoginApiMessage\fR are used internally for login parsing.
 .SH USAGE EXAMPLES
 .SS 1. Setup and session authentication
 .nf
@@ -438,7 +480,11 @@ args.insert("doctype".into(), "Sales Invoice".into());
 args.insert("docname".into(), "SINV-0001".into());
 let result = client.call_method("frappe.email.send", Some(args)).await?;
 .fi
-.SS 9. Error handling
+.SS 9. Global search
+.nf
+let results = client.global_search("customer", 10, Some("Customer")).await?;
+.fi
+.SS 10. Error handling
 .nf
 match client.authenticated_get("/api/resource/ToDo").await {
     Err(JssError::ApiError { exc_type, message, status }) => {
@@ -457,7 +503,7 @@ match client.authenticated_get("/api/resource/ToDo").await {
     Ok(data) => { /* process data */ }
 }
 .fi
-.SS 10. Accessing boot data
+.SS 11. Accessing boot data
 .nf
 if let Some(boot) = client.boot() {
     println!("Site: {}", boot.sitename);
