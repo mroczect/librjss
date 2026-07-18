@@ -154,4 +154,241 @@ impl RjssClient {
     pub fn is_read_only(&self) -> bool {
         self.boot.as_ref().map(|b| b.read_only).unwrap_or(false)
     }
+    pub async fn post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError> {
+        crate::client::methods::post_form::authenticated_post_form(self, path, form).await
+    }
+
+    pub async fn global_search(
+        &self,
+        query: &str,
+        limit: u32,
+        doctype: Option<&str>,
+    ) -> Result<String, JssError> {
+        let form = [
+            ("text", query),
+            ("start", "0"),
+            ("limit", &limit.to_string()),
+            ("doctype", doctype.unwrap_or("")),
+        ];
+        self.post_form("/api/method/frappe.utils.global_search.search", &form)
+            .await
+    }
+
+    pub async fn search_link(
+        &self,
+        txt: &str,
+        doctype: &str,
+        reference_doctype: &str,
+        page_length: u32,
+    ) -> Result<String, JssError> {
+        let form = [
+            ("txt", txt),
+            ("doctype", doctype),
+            ("reference_doctype", reference_doctype),
+            ("page_length", &page_length.to_string()),
+        ];
+        self.post_form("/api/method/frappe.desk.search.search_link", &form)
+            .await
+    }
+
+    pub async fn get_transitions(&self, doc_json: &str) -> Result<String, JssError> {
+        let form = [("doc", doc_json)];
+        self.post_form("/api/method/frappe.model.workflow.get_transitions", &form)
+            .await
+    }
+
+    pub async fn save_user_settings(
+        &self,
+        doctype: &str,
+        user_settings: &str,
+    ) -> Result<String, JssError> {
+        let form = [("doctype", doctype), ("user_settings", user_settings)];
+        self.post_form("/api/method/frappe.model.utils.user_settings.save", &form)
+            .await
+    }
+
+    pub async fn get_count(
+        &self,
+        doctype: &str,
+        filters_json: &str,
+        fields_json: &str,
+        distinct: bool,
+    ) -> Result<String, JssError> {
+        let form = [
+            ("doctype", doctype),
+            ("filters", filters_json),
+            ("fields", fields_json),
+            ("distinct", &distinct.to_string()),
+        ];
+        self.post_form("/api/method/frappe.desk.reportview.get_count", &form)
+            .await
+    }
+
+    pub async fn get_list(
+        &self,
+        doctype: &str,
+        fields_json: &str,
+        filters_json: &str,
+        or_filters_json: &str,
+        order_by: &str,
+        start: u32,
+        page_length: u32,
+        view: &str,
+        group_by: &str,
+        with_comment_count: bool,
+    ) -> Result<String, JssError> {
+        let params = vec![
+            format!("doctype={}", urlencoding::encode(doctype)),
+            format!("fields={}", urlencoding::encode(fields_json)),
+            format!("filters={}", urlencoding::encode(filters_json)),
+            format!("or_filters={}", urlencoding::encode(or_filters_json)),
+            format!("order_by={}", urlencoding::encode(order_by)),
+            format!("start={start}"),
+            format!("page_length={page_length}"),
+            format!("view={}", urlencoding::encode(view)),
+            format!("group_by={}", urlencoding::encode(group_by)),
+            format!("with_comment_count={}", with_comment_count as i32),
+        ];
+        let path = format!(
+            "/api/method/frappe.desk.reportview.get_list?{}",
+            params.join("&")
+        );
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn get_list_settings(&self, doctype: &str) -> Result<String, JssError> {
+        let form = [("doctype", doctype)];
+        self.post_form("/api/method/frappe.desk.listview.get_list_settings", &form)
+            .await
+    }
+
+    pub async fn get_doctype_meta(&self, doctype: &str) -> Result<String, JssError> {
+        let path = format!(
+            "/api/method/frappe.desk.form.load.getdoctype?doctype={}&with_parent=1",
+            urlencoding::encode(doctype)
+        );
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn file_list(
+        &self,
+        folder: &str,
+        limit: u32,
+        extra_filters: Option<Vec<(&str, &str, &str, &str)>>,
+    ) -> Result<String, JssError> {
+        let mut all_filters: Vec<(&str, &str, &str, &str)> = vec![("File", "folder", "=", folder)];
+
+        if let Some(ef) = extra_filters {
+            for f in ef {
+                all_filters.push(f);
+            }
+        }
+
+        let filters_formatted: Vec<[&str; 4]> = all_filters
+            .iter()
+            .map(|(d, f, o, v)| [*d, *f, *o, *v])
+            .collect();
+
+        let filters_json = serde_json::to_string(&filters_formatted).unwrap_or_default();
+
+        let fields = [
+            "file_name",
+            "file_url",
+            "file_size",
+            "file_type",
+            "is_private",
+            "attached_to_doctype",
+            "attached_to_name",
+            "attached_to_field",
+            "creation",
+            "modified",
+        ];
+        let fields_json = serde_json::to_string(&fields).unwrap_or_default();
+
+        let path = format!(
+            "/api/resource/File?filters={}&fields={}&limit_page_length={limit}&order_by=creation%20desc",
+            urlencoding::encode(&filters_json),
+            urlencoding::encode(&fields_json)
+        );
+
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn get_doc_json(
+        &self,
+        doctype: &str,
+        name: &str,
+    ) -> Result<serde_json::Value, JssError> {
+        let body = self.get_doc(doctype, name).await?;
+        serde_json::from_str(&body).map_err(|e| JssError::Parse(e.to_string()))
+    }
+
+    pub async fn doctype_list_json(
+        &self,
+        doctype: &str,
+        fields: Option<Vec<&str>>,
+        filters: Vec<(&str, &str, &str)>,
+        limit: u32,
+        start: u32,
+        order_by: Option<&str>,
+    ) -> Result<serde_json::Value, JssError> {
+        let mut builder = self.doctype(doctype).limit(limit).limit_start(start);
+        if let Some(f) = fields {
+            builder = builder.fields(f);
+        }
+        if let Some(o) = order_by {
+            builder = builder.order_by(o);
+        }
+        for (field, op, value) in filters {
+            builder = builder.filter(field, op, value);
+        }
+        let raw = builder.execute_raw().await?;
+        serde_json::from_str(&raw).map_err(|e| JssError::Parse(e.to_string()))
+    }
+
+    pub async fn run_report(
+        &self,
+        report_name: &str,
+        filters: serde_json::Value,
+    ) -> Result<String, JssError> {
+        let body = serde_json::json!({ "report_name": report_name, "filters": filters });
+        self.authenticated_post(
+            "/api/method/frappe.desk.query_report.run",
+            &body.to_string(),
+        )
+        .await
+    }
+
+    pub async fn get_notifications(&self, limit: u32) -> Result<String, JssError> {
+        let path = format!(
+            "/api/method/frappe.desk.doctype.notification_log.notification_log.get_notification_logs?limit={limit}"
+        );
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn get_events(&self, start: &str, end: &str) -> Result<String, JssError> {
+        let path = format!(
+            "/api/method/frappe.desk.doctype.event.event.get_events?start={start}&end={end}"
+        );
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn get_desktop_page(
+        &self,
+        name: &str,
+        title: &str,
+        public: bool,
+    ) -> Result<String, JssError> {
+        let page = serde_json::json!({ "name": name, "title": title, "public": public });
+        let path = format!(
+            "/api/method/frappe.desk.desktop.get_desktop_page?page={}",
+            urlencoding::encode(&page.to_string())
+        );
+        self.authenticated_get(&path).await
+    }
+
+    pub async fn get_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError> {
+        let form = [("docname", docname), ("tab", tab)];
+        self.post_form("/api/method/juragan.ops.doctype.master_data_nasabah.master_data_nasabah.get_lazy_child_rows", &form).await
+    }
 }
