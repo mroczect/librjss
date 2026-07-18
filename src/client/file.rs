@@ -31,7 +31,6 @@ impl RjssClient {
             .text("fieldname", fieldname.to_string());
 
         let response = self.http.post(url).multipart(form).send().await?;
-
         let status = response.status();
         let body = response.text().await?;
 
@@ -48,13 +47,22 @@ impl RjssClient {
             return Err(JssError::Validation("Invalid file URL".into()));
         }
 
+        let decoded = urlencoding::decode(file_url)
+            .map_err(|_| JssError::Validation("Invalid encoding in file URL".into()))?;
+        if decoded.contains("://") {
+            return Err(JssError::Validation(
+                "Absolute URL not allowed for file download".into(),
+            ));
+        }
+
         let url = self
             .base_url()
-            .join(file_url)
+            .join(&decoded)
             .map_err(|e| JssError::Parse(format!("Invalid file URL: {e}")))?;
 
-        let response = self.http.get(url).send().await?;
+        self.config.validate_joined_url(&url)?;
 
+        let response = self.http.get(url).send().await?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await?;
@@ -71,6 +79,10 @@ impl RjssClient {
         file_url: &str,
         save_path: &Path,
     ) -> Result<(), JssError> {
+        if save_path.to_str().map_or(true, |s| s.contains("..")) {
+            return Err(JssError::Validation("Invalid save path".into()));
+        }
+
         let bytes = self.download_file(file_url).await?;
         std::fs::write(save_path, bytes)
             .map_err(|e| JssError::FileOperation(format!("Failed to save file: {e}")))?;

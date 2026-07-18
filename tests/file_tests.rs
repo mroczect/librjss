@@ -18,7 +18,7 @@ async fn setup_client(server: &MockServer) -> RjssClient {
         auth_mode: session_auth("user", "pass"),
         expected_sitename: None,
         required_roles: vec![],
-        timeout_secs: 1,              // <-- lebih pendek supaya cepat gagal kalau salah
+        timeout_secs: 1, // <-- lebih pendek supaya cepat gagal kalau salah
         max_retries: 1,
         user_agent: "test".into(),
         insecure_ssl: true,
@@ -68,7 +68,9 @@ async fn test_upload_file() {
     // Mock untuk endpoint upload – cukup cocokkan method POST dan path
     Mock::given(method("POST"))
         .and(path("/api/method/upload_file"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(r#"{"file_url":"/files/test.png"}"#))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(r#"{"file_url":"/files/test.png"}"#),
+        )
         .mount(&server)
         .await;
 

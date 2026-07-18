@@ -28,14 +28,24 @@ pub(crate) fn apply_auth_to_builder(
 pub(crate) fn build_join_url(client: &RjssClient, path: &str) -> Result<reqwest::Url, JssError> {
     let decoded = urlencoding::decode(path)
         .map_err(|_| JssError::Validation("Invalid URL path encoding".into()))?;
+
+    if decoded.contains("://") {
+        return Err(JssError::Validation("Absolute URL not allowed".into()));
+    }
+
     if decoded.contains("..") {
         return Err(JssError::Validation("Path traversal not allowed".into()));
     }
-    client
+
+    let joined = client
         .config
         .base_url
         .join(&decoded)
-        .map_err(|e| JssError::Parse(format!("URL join error: {e}")))
+        .map_err(|e| JssError::Parse(format!("URL join error: {e}")))?;
+
+    client.config.validate_joined_url(&joined)?;
+
+    Ok(joined)
 }
 
 pub(crate) fn backoff_config(client: &RjssClient) -> ExponentialBackoff {
@@ -63,6 +73,18 @@ pub(crate) fn classify_response(status: StatusCode, body: &str) -> backoff::Erro
     } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
         let error = JssError::from_api_response(status, body);
         backoff::Error::permanent(error)
+    } else if matches!(
+        status,
+        StatusCode::BAD_REQUEST
+            | StatusCode::NOT_FOUND
+            | StatusCode::METHOD_NOT_ALLOWED
+            | StatusCode::CONFLICT
+            | StatusCode::GONE
+    ) {
+        backoff::Error::permanent(JssError::Http {
+            status,
+            body: body.to_string(),
+        })
     } else {
         backoff::Error::transient(JssError::Http {
             status,
