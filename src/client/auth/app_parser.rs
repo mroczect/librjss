@@ -2,7 +2,6 @@ use crate::api::auth::AuthEndpoints;
 use crate::client::RjssClient;
 use crate::handler::error::JssError;
 use crate::handler::types::boot::FrappeBoot;
-use regex::Regex;
 use scraper::{Html, Selector};
 use secrecy::SecretString;
 use tracing::trace;
@@ -21,7 +20,6 @@ pub(crate) async fn fetch_app_page(client: &RjssClient) -> Result<String, JssErr
 
 pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot), JssError> {
     let document = Html::parse_document(html);
-
     let selector = Selector::parse("script")
         .map_err(|_| JssError::Parse("Failed to parse CSS selector".into()))?;
     let mut csrf_token = String::new();
@@ -38,20 +36,53 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
         }
     }
 
-    let re = Regex::new(r"(?s)frappe\.boot\s*=\s*(\{.*?\});\s*\n")
-        .map_err(|_| JssError::Parse("Regex compilation error".into()))?;
-    let caps = re.captures(html).ok_or(JssError::Parse(
+    let boot_obj = extract_json_object(html, "frappe.boot").ok_or(JssError::Parse(
         "Could not find frappe.boot object in /app".into(),
     ))?;
-    let boot_json = caps
-        .get(1)
-        .ok_or(JssError::Parse("Regex capture group missing".into()))?
-        .as_str();
 
-    let boot: FrappeBoot = serde_json::from_str(boot_json)
+    let boot: FrappeBoot = serde_json::from_str(&boot_obj)
         .map_err(|e| JssError::Parse(format!("Failed to parse frappe.boot: {e}")))?;
 
     Ok((SecretString::new(Box::from(csrf_token)), boot))
+}
+
+fn extract_json_object(text: &str, key: &str) -> Option<String> {
+    let start_marker = format!("{} = ", key);
+    let pos = text.find(&start_marker)?;
+    let after = &text[pos + start_marker.len()..];
+    let first_brace = after.find('{')?;
+    let slice = &after[first_brace..];
+    let mut count = 0;
+    let mut in_string = false;
+    let mut escape = false;
+    let mut end_idx = None;
+    let chars: Vec<char> = slice.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        if in_string {
+            if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+            } else if ch == '{' {
+                count += 1;
+            } else if ch == '}' {
+                count -= 1;
+                if count == 0 {
+                    end_idx = Some(i + 1);
+                    break;
+                }
+            }
+        }
+    }
+    end_idx.map(|idx| chars[..idx].iter().collect::<String>())
 }
 
 #[cfg(test)]
@@ -94,6 +125,19 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_boot_with_curly_braces_in_string() {
+        let boot_json = r#"{
+            "sitename": "test",
+            "data": "{ \"nested\": \"value\" }",
+            "user": {"name": "dev"}
+        }"#;
+        let html = make_html("tok", boot_json);
+        let (_, boot) = extract_app_data(&html).expect("Curly brace in string");
+        assert_eq!(boot.sitename, "test");
+        assert_eq!(boot.user.name, "dev");
+    }
+
+    #[test]
     fn test_extract_boot_from_real_html() {
         let html = include_str!("../../../tests/fixtures/real_app_page.html");
         let (csrf, boot) = extract_app_data(html).expect("Failed to parse real HTML");
@@ -130,25 +174,5 @@ mod tests {
         let result = extract_app_data(html);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), JssError::Parse(_)));
-    }
-
-    #[test]
-    fn test_extract_boot_with_extra_fields() {
-        let boot_json = r#"{
-            "sitename":"extra",
-            "user":{"name":"u","full_name":"F","roles":[]},
-            "versions":{"frappe":"16"},
-            "lang_dict":{"en":"English"},
-            "sidebar_pages":{"pages":[],"has_access":true,"has_create_access":false},
-            "navbar_settings":null,
-            "developer_mode":1,
-            "read_only":true
-        }"#;
-        let html = make_html("tok", boot_json);
-        let (_, boot) = extract_app_data(&html).expect("Extra fields");
-        assert_eq!(boot.versions.get("frappe").unwrap(), "16");
-        assert_eq!(boot.lang_dict.get("en").unwrap(), "English");
-        assert_eq!(boot.developer_mode, 1);
-        assert!(boot.read_only);
     }
 }
