@@ -1,11 +1,11 @@
-.TH LIBRJSS 3 "July 2026" "librjss 2.1.0" "Library Functions Manual"
+.TH LIBRJSS 3 "July 2026" "librjss 2.2.1" "Library Functions Manual"
 .SH NAME
 librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs.
 .SH SYNOPSIS
 .SS Cargo dependency
 .nf
 \fB[dependencies]\fR
-\fBlibrjss = { git = "https://github.com/mroczect/librjss.git" }\fR
+\fBlibrjss = { git = "https://github.com/mroczect/librjss.git", branch = "master" }\fR
 .fi
 .SS Import in Rust code
 .nf
@@ -20,7 +20,7 @@ librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNe
 \fBlibrjss\fR provides full access to a JSS (Frappe/ERPNext) server.
 It supports:
 .IP \[bu] 2
-Cookie-based session authentication and token-based API key/secret authentication.
+Cookie‑based session authentication and token‑based API key/secret authentication.
 .IP \[bu]
 Automatic CSRF token extraction from the \fB/app\fR dashboard.
 .IP \[bu]
@@ -30,7 +30,7 @@ Typed builders for report execution, doctype CRUD, and file upload/download.
 .IP \[bu]
 A rich error model mirroring Frappe JSON error responses.
 .IP \[bu]
-Zero-framework – lightweight dependencies on \fBreqwest\fR, \fBserde\fR,
+Zero‑framework – lightweight dependencies on \fBreqwest\fR, \fBserde\fR,
 \fBsecrecy\fR, and a few other small crates.
 .IP \[bu]
 Unique trace ID per client for distributed tracing.
@@ -44,7 +44,7 @@ Central struct holding configuration, HTTP client, session, credentials, and boo
 .RS 4
 \fBRjssClient::new(config: ClientConfig) -> Result<Self, JssError>\fR
 .br
-Validates configuration, builds a reqwest client with a cookie jar, timeout, and user-agent.
+Validates configuration, builds a reqwest client with a cookie jar, timeout, and user‑agent.
 .RE
 .PP
 \fBAuthentication & session methods:\fR
@@ -89,13 +89,16 @@ Sends a POST request with \fBapplication/x-www-form-urlencoded\fR body. Useful f
 \fBFile operations:\fR
 .TP
 \fBupload_file(&self, file_name: &str, file_content: Vec<u8>, doctype: &str, docname: &str, fieldname: &str) -> Result<String, JssError>\fR
-Uploads a file to \fB/api/method/upload_file\fR using multipart/form-data. Returns the raw JSON response.
+Uploads a file to \fB/api/method/upload_file\fR using multipart/form‑data. Returns the raw JSON response.
 .TP
 \fBdownload_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>\fR
 Downloads a file from a relative URL (e.g., "/files/photo.png"). Returns raw bytes.
 .TP
 \fBdownload_file_to_path(&self, file_url: &str, save_path: &Path) -> Result<(), JssError>\fR
 Same as above, but writes directly to disk.
+.TP
+\fBdownload_pdf_kartu_piutang(&self, doctype: &str, name: &str, format: &str, no_letterhead: bool) -> Result<Vec<u8>, JssError>\fR
+Downloads a PDF of a specific print format (JSS-specific) using \fB/api/method/frappe.utils.print_format.download_pdf\fR with query parameters. Returns the raw PDF bytes.
 .PP
 \fBReport builder:\fR
 .TP
@@ -122,7 +125,7 @@ Deletes a document.
 \fBcall_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>\fR
 Calls a whitelisted server method (e.g., \fBfrappe.email.send\fR) with optional arguments. The body is sent as a JSON POST.
 .PP
-\fBFrappe-specific convenience methods:\fR
+\fBFrappe‑specific convenience methods:\fR
 .TP
 \fBglobal_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>\fR
 Performs a global search like the Frappe navbar. Uses \fBfrappe.utils.global_search.search\fR.
@@ -134,7 +137,7 @@ Autocomplete for link fields. Calls \fBfrappe.desk.search.search_link\fR.
 Gets workflow transitions for a document. Calls \fBfrappe.model.workflow.get_transitions\fR.
 .TP
 \fBsave_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>\fR
-Saves user-specific settings for a doctype. Calls \fBfrappe.model.utils.user_settings.save\fR.
+Saves user‑specific settings for a doctype. Calls \fBfrappe.model.utils.user_settings.save\fR.
 .TP
 \fBget_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssError>\fR
 Gets record count. Calls \fBfrappe.desk.reportview.get_count\fR.
@@ -170,7 +173,7 @@ Gets calendar events for a date range.
 Gets desktop page (workspace) data. Calls \fBfrappe.desk.desktop.get_desktop_page\fR.
 .TP
 \fBget_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>\fR
-JSS-specific: loads lazy child table rows. Calls \fBget_lazy_child_rows\fR.
+JSS‑specific: loads lazy child table rows. Calls \fBget_lazy_child_rows\fR.
 .PP
 \fBBoot data convenience accessors:\fR
 .TP
@@ -431,7 +434,17 @@ std::fs::write("local.png", bytes)?;
 // or directly
 client.download_file_to_path("/files/photo.png", Path::new("local.png")).await?;
 .fi
-.SS 5. Running a report
+.SS 5. Download a PDF (Kartu Piutang)
+.nf
+let pdf_bytes = client.download_pdf_kartu_piutang(
+    "Master Data Nasabah",
+    "ODR-123",
+    "Form Rincian Sisa Piutang Nasabah",
+    true  // no_letterhead
+).await?;
+std::fs::write("piutang.pdf", pdf_bytes)?;
+.fi
+.SS 6. Running a report
 .nf
 #[derive(Deserialize)]
 struct MyReportRow { /* ... */ }
@@ -442,7 +455,7 @@ let rows: Vec<MyReportRow> = client
     .run()
     .await?;
 .fi
-.SS 6. Doctype listing with filters
+.SS 7. Doctype listing with filters
 .nf
 let list: serde_json::Value = client
     .doctype("ToDo")
@@ -460,7 +473,7 @@ let all: Vec<ToDo> = client
     .all()
     .await?;
 .fi
-.SS 7. Single document CRUD
+.SS 8. Single document CRUD
 .nf
 let doc = client.get_doc("Customer", "CUST-001").await?;
 
@@ -472,7 +485,7 @@ let created = client.create_doc("Customer", &new_cust).await?;
 let updated = client.update_doc("Customer", "CUST-001", &modification).await?;
 let deleted = client.delete_doc("Customer", "OLD-CUST").await?;
 .fi
-.SS 8. Calling a server method
+.SS 9. Calling a server method
 .nf
 use std::collections::HashMap;
 let mut args = HashMap::new();
@@ -480,11 +493,11 @@ args.insert("doctype".into(), "Sales Invoice".into());
 args.insert("docname".into(), "SINV-0001".into());
 let result = client.call_method("frappe.email.send", Some(args)).await?;
 .fi
-.SS 9. Global search
+.SS 10. Global search
 .nf
 let results = client.global_search("customer", 10, Some("Customer")).await?;
 .fi
-.SS 10. Error handling
+.SS 11. Error handling
 .nf
 match client.authenticated_get("/api/resource/ToDo").await {
     Err(JssError::ApiError { exc_type, message, status }) => {
@@ -503,7 +516,7 @@ match client.authenticated_get("/api/resource/ToDo").await {
     Ok(data) => { /* process data */ }
 }
 .fi
-.SS 11. Accessing boot data
+.SS 12. Accessing boot data
 .nf
 if let Some(boot) = client.boot() {
     println!("Site: {}", boot.sitename);
@@ -538,7 +551,7 @@ API secret for token auth.
 Optional. Expected site name; login fails if the boot sitename does not match.
 .TP
 \fBJSS_REQUIRED_ROLES\fR
-Optional. Comma-separated required roles.
+Optional. Comma‑separated required roles.
 .TP
 \fBJSS_TIMEOUT_SECS\fR
 Request timeout in seconds (default 30).
@@ -547,10 +560,10 @@ Request timeout in seconds (default 30).
 Maximum retry attempts (default 3).
 .TP
 \fBJSS_USER_AGENT\fR
-Custom User-Agent header.
+Custom User‑Agent header.
 .TP
 \fBJSS_INSECURE_SSL\fR
-Set "true" to accept invalid TLS certificates (e.g., self-signed).
+Set "true" to accept invalid TLS certificates (e.g., self‑signed).
 .SH MOCK SERVER FOR DEVELOPMENT
 A full mock server is available at \fBexamples/jss_mock_server.rs\fR. It replicates the behaviour of a real JSS server:
 .IP \[bu] 2
