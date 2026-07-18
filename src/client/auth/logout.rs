@@ -9,12 +9,11 @@ pub(crate) async fn logout(client: &mut RjssClient) -> Result<(), JssError> {
     let session = client.session.as_ref().ok_or(JssError::NotAuthenticated)?;
     let csrf = session.csrf_token.expose_secret();
     let logout_url = RjssClient::logout_url(&client.config.base_url)?;
-    let resp = client
-        .http
-        .post(logout_url)
-        .header("X-Frappe-CSRF-Token", csrf)
-        .send()
-        .await?;
+    let mut req = client.http.post(logout_url);
+    if !csrf.is_empty() {
+        req = req.header("X-Frappe-CSRF-Token", csrf);
+    }
+    let resp = req.send().await?;
     let status = resp.status();
     if status.is_success() {
         info!(trace_id = client.trace_id, "Logout successful");
