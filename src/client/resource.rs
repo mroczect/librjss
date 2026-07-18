@@ -44,7 +44,12 @@ impl<'a> ResourceBuilder<'a> {
     }
 
     pub fn limit(mut self, limit: u32) -> Self {
-        self.limit = Some(limit);
+        if limit == 0 {
+            tracing::warn!("limit set to 0, using default 200");
+            self.limit = Some(200);
+        } else {
+            self.limit = Some(limit);
+        }
         self
     }
 
