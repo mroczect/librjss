@@ -393,39 +393,48 @@ impl RjssClient {
         self.post_form("/api/method/juragan.ops.doctype.master_data_nasabah.master_data_nasabah.get_lazy_child_rows", &form).await
     }
 
-    pub async fn download_print_format(
+    pub async fn download_pdf_kartu_piutang(
         &self,
         doctype: &str,
         name: &str,
         format: &str,
+        no_letterhead: bool,
     ) -> Result<Vec<u8>, JssError> {
+        let no_letterhead_val = if no_letterhead { "1" } else { "0" };
+        
+        let path = format!(
+            "/api/method/frappe.utils.print_format.download_pdf?doctype={}&name={}&format={}&no_letterhead={}",
+            urlencoding::encode(doctype),
+            urlencoding::encode(name),
+            urlencoding::encode(format),
+            no_letterhead_val
+        );
+    
         let url = self
             .config
             .base_url
-            .join("/api/method/frappe.utils.print_format.download_pdf")
+            .join(&path)
             .map_err(|e| JssError::Parse(format!("Invalid PDF URL: {e}")))?;
-
-        let form = [("doctype", doctype), ("name", name), ("format", format)];
-
-        let mut req = self.http.post(url).form(&form);
-
+    
+        let mut req = self.http.get(url);
+    
         if let Some(session) = &self.session {
             let csrf = session.csrf_token.expose_secret();
             if !csrf.is_empty() {
                 req = req.header("X-Frappe-CSRF-Token", csrf);
             }
         }
-
+    
         req = crate::client::auth::http_helpers::apply_auth_to_builder(&self.config.auth_mode, req);
-
+    
         let resp = req.send().await?;
         let status = resp.status();
-
+    
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             return Err(JssError::from_api_response(status, &body));
         }
-
+    
         let bytes = resp.bytes().await?;
         Ok(bytes.to_vec())
     }
