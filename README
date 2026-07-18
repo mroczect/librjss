@@ -6,7 +6,7 @@ NAME
 SYNOPSIS
    Cargo dependency
        [dependencies]
-       librjss = { git = "https://github.com/mroczect/librjss.git" }
+       librjss = { git = "https://github.com/mroczect/librjss.git", branch = "master" }
 
    Import in Rust code
        use librjss::{
@@ -19,7 +19,7 @@ SYNOPSIS
 DESCRIPTION
        librjss provides full access to a JSS (Frappe/ERPNext) server.  It supports:
 
-       • Cookie-based session authentication and token-based API key/secret authentication.
+       • Cookie‑based session authentication and token‑based API key/secret authentication.
 
        • Automatic CSRF token extraction from the /app dashboard.
 
@@ -29,7 +29,7 @@ DESCRIPTION
 
        • A rich error model mirroring Frappe JSON error responses.
 
-       • Zero-framework – lightweight dependencies on reqwest, serde, secrecy, and a few other small crates.
+       • Zero‑framework – lightweight dependencies on reqwest, serde, secrecy, and a few other small crates.
 
        • Unique trace ID per client for distributed tracing.
 
@@ -41,7 +41,7 @@ CORE CONCEPTS
 
        Constructor:
 	   RjssClient::new(config: ClientConfig) -> Result<Self, JssError>
-	   Validates configuration, builds a reqwest client with a cookie jar, timeout, and user-agent.
+	   Validates configuration, builds a reqwest client with a cookie jar, timeout, and user‑agent.
 
        Authentication & session methods:
 
@@ -92,13 +92,18 @@ CORE CONCEPTS
 
        upload_file(&self, file_name: &str, file_content: Vec<u8>, doctype: &str, docname: &str, fieldname: &str) -> Re‐
        sult<String, JssError>
-	      Uploads a file to /api/method/upload_file using multipart/form-data. Returns the raw JSON response.
+	      Uploads a file to /api/method/upload_file using multipart/form‑data. Returns the raw JSON response.
 
        download_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>
 	      Downloads a file from a relative URL (e.g., "/files/photo.png"). Returns raw bytes.
 
        download_file_to_path(&self, file_url: &str, save_path: &Path) -> Result<(), JssError>
 	      Same as above, but writes directly to disk.
+
+       download_pdf_kartu_piutang(&self, doctype: &str, name: &str, format: &str, no_letterhead: bool) -> Re‐
+       sult<Vec<u8>, JssError>
+	      Downloads	 a  PDF	 of  a	specific  print	 format (JSS-specific) using /api/method/frappe.utils.print_for‐
+	      mat.download_pdf with query parameters. Returns the raw PDF bytes.
 
        Report builder:
 
@@ -126,7 +131,7 @@ CORE CONCEPTS
 	      Calls a whitelisted server method (e.g., frappe.email.send) with optional arguments. The body is sent as a
 	      JSON POST.
 
-       Frappe-specific convenience methods:
+       Frappe‑specific convenience methods:
 
        global_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>
 	      Performs a global search like the Frappe navbar. Uses frappe.utils.global_search.search.
@@ -139,7 +144,7 @@ CORE CONCEPTS
 	      Gets workflow transitions for a document. Calls frappe.model.workflow.get_transitions.
 
        save_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>
-	      Saves user-specific settings for a doctype. Calls frappe.model.utils.user_settings.save.
+	      Saves user‑specific settings for a doctype. Calls frappe.model.utils.user_settings.save.
 
        get_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssEr‐
        ror>
@@ -179,7 +184,7 @@ CORE CONCEPTS
 	      Gets desktop page (workspace) data. Calls frappe.desk.desktop.get_desktop_page.
 
        get_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>
-	      JSS-specific: loads lazy child table rows. Calls get_lazy_child_rows.
+	      JSS‑specific: loads lazy child table rows. Calls get_lazy_child_rows.
 
        Boot data convenience accessors:
 
@@ -215,10 +220,10 @@ CORE CONCEPTS
 	   },
        }
 
-       • Session  – logs in with email/password, manages session cookies, and automatically extracts the CSRF token from
+       • Session – logs in with email/password, manages session cookies, and automatically extracts the CSRF token  from
 	 /app.
 
-       • Token – sends an Authorization: token api_key:api_secret header on every request. No explicit login  or  logout
+       • Token	–  sends an Authorization: token api_key:api_secret header on every request. No explicit login or logout
 	 is required.
 
    ClientConfig
@@ -238,7 +243,7 @@ CORE CONCEPTS
        Method:
 
        validate(&self) -> Result<(), JssError>
-	      Ensures  HTTPS  is used unless insecure_ssl is true, and that email and password are not empty for Session
+	      Ensures HTTPS is used unless insecure_ssl is true, and that email and password are not empty  for	 Session
 	      mode.
 
    JssError
@@ -269,7 +274,7 @@ CORE CONCEPTS
 	      Parses a Frappe JSON error body. If exc_type is present, returns ApiError; otherwise returns Http.
 
        status_code(&self) -> StatusCode
-	      Maps each variant to an appropriate HTTP status code (e.g., Config → 500, Network → 502, Auth → 401,  Csrf
+	      Maps  each variant to an appropriate HTTP status code (e.g., Config → 500, Network → 502, Auth → 401, Csrf
 	      → 403, RateLimited → 429).
 
    SessionInfo
@@ -294,7 +299,7 @@ CORE CONCEPTS
        • roles – user role list.
 
    FrappeBoot and related types
-       Data  structure	deserialized  from  the JavaScript frappe.boot object on the /app page. All fields have defaults
+       Data structure deserialized from the JavaScript frappe.boot object on the /app page.  All  fields  have	defaults
        (mostly Option or empty collections). The full definition can be found in the source; here are the most important
        fields:
 
@@ -319,7 +324,7 @@ CORE CONCEPTS
 	   pub read_only: bool,
 	   ...
 
-       BootUser: Contains the user’s name, email, full_name, roles, user_type, permissions (a map of doctype to	 allowed
+       BootUser:  Contains the user’s name, email, full_name, roles, user_type, permissions (a map of doctype to allowed
        actions), and permission vectors like can_select, can_write, etc.
 
        SysDefaults: default_app: Option<String>, time_zone: Option<String>.
@@ -332,7 +337,7 @@ CORE CONCEPTS
 
        BootUserInfo: fullname, image, name, email, time_zone.
 
-       SidebarPages:  workspace_setup_completed:  Option<i32>, pages: Vec<SidebarPage>, has_access: bool, has_create_ac‐
+       SidebarPages: workspace_setup_completed: Option<i32>, pages: Vec<SidebarPage>, has_access:  bool,  has_create_ac‐
        cess: bool.
 
        SidebarPage: Many fields, see source code.
@@ -439,7 +444,16 @@ USAGE EXAMPLES
        // or directly
        client.download_file_to_path("/files/photo.png", Path::new("local.png")).await?;
 
-   5. Running a report
+   5. Download a PDF (Kartu Piutang)
+       let pdf_bytes = client.download_pdf_kartu_piutang(
+	   "Master Data Nasabah",
+	   "ODR-123",
+	   "Form Rincian Sisa Piutang Nasabah",
+	   true	 // no_letterhead
+       ).await?;
+       std::fs::write("piutang.pdf", pdf_bytes)?;
+
+   6. Running a report
        #[derive(Deserialize)]
        struct MyReportRow { /* ... */ }
        let rows: Vec<MyReportRow> = client
@@ -449,7 +463,7 @@ USAGE EXAMPLES
 	   .run()
 	   .await?;
 
-   6. Doctype listing with filters
+   7. Doctype listing with filters
        let list: serde_json::Value = client
 	   .doctype("ToDo")
 	   .filter("status", "=", "Open")
@@ -466,7 +480,7 @@ USAGE EXAMPLES
 	   .all()
 	   .await?;
 
-   7. Single document CRUD
+   8. Single document CRUD
        let doc = client.get_doc("Customer", "CUST-001").await?;
 
        #[derive(Serialize)]
@@ -477,17 +491,17 @@ USAGE EXAMPLES
        let updated = client.update_doc("Customer", "CUST-001", &modification).await?;
        let deleted = client.delete_doc("Customer", "OLD-CUST").await?;
 
-   8. Calling a server method
+   9. Calling a server method
        use std::collections::HashMap;
        let mut args = HashMap::new();
        args.insert("doctype".into(), "Sales Invoice".into());
        args.insert("docname".into(), "SINV-0001".into());
        let result = client.call_method("frappe.email.send", Some(args)).await?;
 
-   9. Global search
+   10. Global search
        let results = client.global_search("customer", 10, Some("Customer")).await?;
 
-   10. Error handling
+   11. Error handling
        match client.authenticated_get("/api/resource/ToDo").await {
 	   Err(JssError::ApiError { exc_type, message, status }) => {
 	       eprintln!("[{exc_type}] {message} (HTTP {status})");
@@ -505,7 +519,7 @@ USAGE EXAMPLES
 	   Ok(data) => { /* process data */ }
        }
 
-   11. Accessing boot data
+   12. Accessing boot data
        if let Some(boot) = client.boot() {
 	   println!("Site: {}", boot.sitename);
 	   println!("Roles: {:?}", boot.user.roles);
@@ -539,7 +553,7 @@ CONFIGURATION (ENVIRONMENT VARIABLES FOR CLI)
 	      Optional. Expected site name; login fails if the boot sitename does not match.
 
        JSS_REQUIRED_ROLES
-	      Optional. Comma-separated required roles.
+	      Optional. Comma‑separated required roles.
 
        JSS_TIMEOUT_SECS
 	      Request timeout in seconds (default 30).
@@ -548,10 +562,10 @@ CONFIGURATION (ENVIRONMENT VARIABLES FOR CLI)
 	      Maximum retry attempts (default 3).
 
        JSS_USER_AGENT
-	      Custom User-Agent header.
+	      Custom User‑Agent header.
 
        JSS_INSECURE_SSL
-	      Set "true" to accept invalid TLS certificates (e.g., self-signed).
+	      Set "true" to accept invalid TLS certificates (e.g., self‑signed).
 
 MOCK SERVER FOR DEVELOPMENT
        A full mock server is available at examples/jss_mock_server.rs. It replicates the behaviour of a real JSS server:
@@ -579,7 +593,7 @@ TESTING
 
        Integration tests require the mock server to be running. Once the server is up:
 
-       cargo test --test client_tests cargo test --test file_tests cargo test --test report_tests cargo test --test  re‐
+       cargo  test --test client_tests cargo test --test file_tests cargo test --test report_tests cargo test --test re‐
        source_tests
 
        Or run everything:
@@ -616,4 +630,4 @@ SEE ALSO
 AUTHOR
        mroczect <mroczect@proton.me>
 
-librjss 2.1.0						July 2026					      LIBRJSS(3)
+librjss 2.2.1						July 2026					      LIBRJSS(3)
