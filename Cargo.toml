@@ -2,8 +2,17 @@
 name = "librjss"
 version = "2.2.2"
 edition = "2024"
+
+authors = ["mroczect <mroczect@proton.me>"]
 description = "Robust client library for Juragan Subsystem"
 license = "MIT"
+repository = "https://github.com/mroczect/librjss"
+homepage = "https://github.com/mroczect/librjss"
+documentation = "https://docs.rs/librjss"
+readme = "README"
+keywords = ["frappe", "erpnext", "api-client", "juragan-subsystem", "async"]
+categories = ["web-programming", "api-bindings"]
+exclude = ["/target", "/.git", "/.github", "/benches", "/examples", "/tests"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "cookies", "multipart"] }

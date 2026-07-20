@@ -401,7 +401,7 @@ impl RjssClient {
         no_letterhead: bool,
     ) -> Result<Vec<u8>, JssError> {
         let no_letterhead_val = if no_letterhead { "1" } else { "0" };
-        
+
         let path = format!(
             "/api/method/frappe.utils.print_format.download_pdf?doctype={}&name={}&format={}&no_letterhead={}",
             urlencoding::encode(doctype),
@@ -409,32 +409,32 @@ impl RjssClient {
             urlencoding::encode(format),
             no_letterhead_val
         );
-    
+
         let url = self
             .config
             .base_url
             .join(&path)
             .map_err(|e| JssError::Parse(format!("Invalid PDF URL: {e}")))?;
-    
+
         let mut req = self.http.get(url);
-    
+
         if let Some(session) = &self.session {
             let csrf = session.csrf_token.expose_secret();
             if !csrf.is_empty() {
                 req = req.header("X-Frappe-CSRF-Token", csrf);
             }
         }
-    
+
         req = crate::client::auth::http_helpers::apply_auth_to_builder(&self.config.auth_mode, req);
-    
+
         let resp = req.send().await?;
         let status = resp.status();
-    
+
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             return Err(JssError::from_api_response(status, &body));
         }
-    
+
         let bytes = resp.bytes().await?;
         Ok(bytes.to_vec())
     }
