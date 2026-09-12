@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod file;
+pub mod guard;
 pub mod methods;
 pub mod report;
 pub mod resource;
@@ -7,7 +8,6 @@ pub mod resource;
 use reqwest::Client as ReqwestClient;
 use reqwest::Url;
 use reqwest::cookie::Jar;
-use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use std::sync::Arc;
 use tracing::info;
@@ -18,6 +18,7 @@ use crate::handler::config::ClientConfig;
 use crate::handler::error::JssError;
 use crate::handler::types::SessionInfo;
 use crate::handler::types::boot::FrappeBoot;
+use guard::ReadOnlyGuard;
 
 pub struct RjssClient {
     pub(crate) config: ClientConfig,
@@ -26,6 +27,7 @@ pub struct RjssClient {
     pub(crate) trace_id: String,
     pub(crate) credentials: Option<(SecretString, SecretString)>,
     pub(crate) boot: Option<FrappeBoot>,
+    pub(crate) guard: Option<ReadOnlyGuard>,
 }
 
 impl AuthEndpoints for RjssClient {}
@@ -42,6 +44,12 @@ impl RjssClient {
             .user_agent(&config.user_agent)
             .build()?;
 
+        let guard = if config.readonly_guard {
+            Some(ReadOnlyGuard::new())
+        } else {
+            None
+        };
+
         let trace_id = Uuid::new_v4().to_string();
         info!(
             trace_id,
@@ -55,6 +63,7 @@ impl RjssClient {
             trace_id,
             credentials: None,
             boot: None,
+            guard,
         })
     }
 
@@ -72,6 +81,71 @@ impl RjssClient {
 
     pub fn boot(&self) -> Option<&FrappeBoot> {
         self.boot.as_ref()
+    }
+
+    pub(crate) fn guard_check(&self, method: &str, path: &str) -> Result<(), JssError> {
+        if let Some(g) = &self.guard {
+            g.check(method, path)?;
+        }
+        Ok(())
+    }
+
+    pub fn is_readonly_guard_on(&self) -> bool {
+        self.guard.is_some()
+    }
+
+    pub fn can_read(&self, doctype: &str) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.user.can_read.iter().any(|d| d == doctype))
+            .unwrap_or(false)
+    }
+
+    pub fn can_write(&self, doctype: &str) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.user.can_write.iter().any(|d| d == doctype))
+            .unwrap_or(false)
+    }
+
+    pub fn can_create(&self, doctype: &str) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.user.can_create.iter().any(|d| d == doctype))
+            .unwrap_or(false)
+    }
+
+    pub fn can_submit(&self, doctype: &str) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.user.can_submit.iter().any(|d| d == doctype))
+            .unwrap_or(false)
+    }
+
+    pub fn can_delete(&self, doctype: &str) -> bool {
+        self.boot
+            .as_ref()
+            .map(|b| b.user.can_delete.iter().any(|d| d == doctype))
+            .unwrap_or(false)
+    }
+
+    pub fn accessible_doctypes(&self) -> Vec<String> {
+        self.boot
+            .as_ref()
+            .map(|b| {
+                let mut set = std::collections::BTreeSet::new();
+                for d in &b.user.can_read {
+                    set.insert(d.clone());
+                }
+                for d in &b.user.can_write {
+                    set.insert(d.clone());
+                }
+                for d in &b.user.can_create {
+                    set.insert(d.clone());
+                }
+                set.into_iter().collect()
+            })
+            .unwrap_or_default()
     }
 
     pub async fn authenticate(&mut self) -> Result<(), JssError> {
@@ -155,6 +229,7 @@ impl RjssClient {
     pub fn is_read_only(&self) -> bool {
         self.boot.as_ref().map(|b| b.read_only).unwrap_or(false)
     }
+
     pub async fn post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError> {
         crate::client::methods::post_form::authenticated_post_form(self, path, form).await
     }
@@ -165,10 +240,11 @@ impl RjssClient {
         limit: u32,
         doctype: Option<&str>,
     ) -> Result<String, JssError> {
+        let limit_str = limit.to_string();
         let form = [
             ("text", query),
             ("start", "0"),
-            ("limit", &limit.to_string()),
+            ("limit", &limit_str),
             ("doctype", doctype.unwrap_or("")),
         ];
         self.post_form("/api/method/frappe.utils.global_search.search", &form)
@@ -182,11 +258,12 @@ impl RjssClient {
         reference_doctype: &str,
         page_length: u32,
     ) -> Result<String, JssError> {
+        let plen = page_length.to_string();
         let form = [
             ("txt", txt),
             ("doctype", doctype),
             ("reference_doctype", reference_doctype),
-            ("page_length", &page_length.to_string()),
+            ("page_length", &plen),
         ];
         self.post_form("/api/method/frappe.desk.search.search_link", &form)
             .await
@@ -215,16 +292,18 @@ impl RjssClient {
         fields_json: &str,
         distinct: bool,
     ) -> Result<String, JssError> {
+        let distinct_str = distinct.to_string();
         let form = [
             ("doctype", doctype),
             ("filters", filters_json),
             ("fields", fields_json),
-            ("distinct", &distinct.to_string()),
+            ("distinct", &distinct_str),
         ];
         self.post_form("/api/method/frappe.desk.reportview.get_count", &form)
             .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_list(
         &self,
         doctype: &str,
@@ -324,29 +403,6 @@ impl RjssClient {
         serde_json::from_str(&body).map_err(|e| JssError::Parse(e.to_string()))
     }
 
-    pub async fn doctype_list_json(
-        &self,
-        doctype: &str,
-        fields: Option<Vec<&str>>,
-        filters: Vec<(&str, &str, &str)>,
-        limit: u32,
-        start: u32,
-        order_by: Option<&str>,
-    ) -> Result<serde_json::Value, JssError> {
-        let mut builder = self.doctype(doctype).limit(limit).limit_start(start);
-        if let Some(f) = fields {
-            builder = builder.fields(f);
-        }
-        if let Some(o) = order_by {
-            builder = builder.order_by(o);
-        }
-        for (field, op, value) in filters {
-            builder = builder.filter(field, op, value);
-        }
-        let raw = builder.execute_raw().await?;
-        serde_json::from_str(&raw).map_err(|e| JssError::Parse(e.to_string()))
-    }
-
     pub async fn run_report(
         &self,
         report_name: &str,
@@ -390,7 +446,11 @@ impl RjssClient {
 
     pub async fn get_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError> {
         let form = [("docname", docname), ("tab", tab)];
-        self.post_form("/api/method/juragan.ops.doctype.master_data_nasabah.master_data_nasabah.get_lazy_child_rows", &form).await
+        self.post_form(
+            "/api/method/juragan.ops.doctype.master_data_nasabah.master_data_nasabah.get_lazy_child_rows",
+            &form,
+        )
+        .await
     }
 
     pub async fn download_pdf_kartu_piutang(
@@ -419,6 +479,7 @@ impl RjssClient {
         let mut req = self.http.get(url);
 
         if let Some(session) = &self.session {
+            use secrecy::ExposeSecret;
             let csrf = session.csrf_token.expose_secret();
             if !csrf.is_empty() {
                 req = req.header("X-Frappe-CSRF-Token", csrf);
