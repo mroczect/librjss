@@ -14,6 +14,7 @@ pub(crate) async fn authenticated_post(
     path: &str,
     body_json: &str,
 ) -> Result<String, JssError> {
+    client.guard_check("POST", path)?;
     let url = build_join_url(client, path)?;
     let http = client.http.clone();
     let auth_mode = client.config.auth_mode.clone();
@@ -36,12 +37,11 @@ pub(crate) async fn authenticated_post(
                 .post(url)
                 .body(body)
                 .header("Content-Type", "application/json");
-            if is_session {
-                if let Some(token) = &csrf {
-                    if !token.is_empty() {
-                        req = req.header("X-Frappe-CSRF-Token", token);
-                    }
-                }
+            if is_session
+                && let Some(token) = &csrf
+                && !token.is_empty()
+            {
+                req = req.header("X-Frappe-CSRF-Token", token);
             }
             req = apply_auth_to_builder(&auth_mode, req);
             let resp = req
