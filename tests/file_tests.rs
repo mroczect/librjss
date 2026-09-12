@@ -22,6 +22,7 @@ async fn setup_client(server: &MockServer) -> RjssClient {
         max_retries: 1,
         user_agent: "test".into(),
         insecure_ssl: true,
+        readonly_guard: false,
     };
     RjssClient::new(config).unwrap()
 }
