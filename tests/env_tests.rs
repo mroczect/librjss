@@ -15,6 +15,7 @@ fn make_config(scheme: &str, insecure: bool, email: &str, password: &str) -> Cli
         max_retries: 3,
         user_agent: "test".into(),
         insecure_ssl: insecure,
+        readonly_guard: false,
     }
 }
 
@@ -62,6 +63,7 @@ fn test_token_mode_no_validation() {
         max_retries: 1,
         user_agent: "test".into(),
         insecure_ssl: true,
+        readonly_guard: false,
     };
     assert!(cfg.validate().is_ok());
 }
