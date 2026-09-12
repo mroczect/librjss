@@ -13,6 +13,7 @@ pub(crate) async fn authenticated_delete(
     client: &RjssClient,
     path: &str,
 ) -> Result<String, JssError> {
+    client.guard_check("DELETE", path)?;
     let url = build_join_url(client, path)?;
     let http = client.http.clone();
     let auth_mode = client.config.auth_mode.clone();
@@ -31,12 +32,11 @@ pub(crate) async fn authenticated_delete(
         let csrf = csrf_token.clone();
         async move {
             let mut req = http.delete(url);
-            if is_session {
-                if let Some(token) = &csrf {
-                    if !token.is_empty() {
-                        req = req.header("X-Frappe-CSRF-Token", token);
-                    }
-                }
+            if is_session
+                && let Some(token) = &csrf
+                && !token.is_empty()
+            {
+                req = req.header("X-Frappe-CSRF-Token", token);
             }
             req = apply_auth_to_builder(&auth_mode, req);
             let resp = req

@@ -11,4 +11,5 @@ pub struct ClientConfig {
     pub max_retries: u32,
     pub user_agent: String,
     pub insecure_ssl: bool,
+    pub readonly_guard: bool,
 }

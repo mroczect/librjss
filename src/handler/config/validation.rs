@@ -11,12 +11,12 @@ impl ClientConfig {
                 "HTTPS required unless insecure_ssl=true".into(),
             ));
         }
-        if let AuthMode::Session { email, password } = &self.auth_mode {
-            if email.expose_secret().is_empty() || password.expose_secret().is_empty() {
-                return Err(JssError::Validation(
-                    "Email and password must not be empty".into(),
-                ));
-            }
+        if let AuthMode::Session { email, password } = &self.auth_mode
+            && (email.expose_secret().is_empty() || password.expose_secret().is_empty())
+        {
+            return Err(JssError::Validation(
+                "Email and password must not be empty".into(),
+            ));
         }
 
         if matches!(self.base_url.scheme(), "data" | "javascript" | "vbscript") {

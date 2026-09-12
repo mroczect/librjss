@@ -25,13 +25,13 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
     let mut csrf_token = String::new();
     for script in document.select(&selector) {
         let text = script.inner_html();
-        if let Some(pos) = text.find("frappe.csrf_token") {
-            if let Some(start) = text[pos..].find('"') {
-                let start = pos + start + 1;
-                if let Some(end) = text[start..].find('"') {
-                    csrf_token = text[start..start + end].to_string();
-                    break;
-                }
+        if let Some(pos) = text.find("frappe.csrf_token")
+            && let Some(start) = text[pos..].find('"')
+        {
+            let start = pos + start + 1;
+            if let Some(end) = text[start..].find('"') {
+                csrf_token = text[start..start + end].to_string();
+                break;
             }
         }
     }

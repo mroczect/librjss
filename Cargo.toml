@@ -1,6 +1,6 @@
 [package]
 name = "librjss"
-version = "2.2.2"
+version = "2.3.0"
 edition = "2024"
 
 authors = ["mroczect <mroczect@proton.me>"]
@@ -21,6 +21,7 @@ serde_json = "1"
 thiserror = "2"
 url = { version = "2", features = ["serde"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
@@ -29,10 +30,11 @@ backoff = { version = "0.4", features = ["tokio"] }
 http = "1"
 scraper = "0.18"
 urlencoding = "2"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
 
 [dev-dependencies]
 wiremock = "0.5"
 tokio = { version = "1", features = ["macros", "rt"] }
 serde_json = "1"
 axum = "0.8.9"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
