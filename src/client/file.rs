@@ -79,7 +79,7 @@ impl RjssClient {
         file_url: &str,
         save_path: &Path,
     ) -> Result<(), JssError> {
-        if save_path.to_str().map_or(true, |s| s.contains("..")) {
+        if save_path.to_str().is_none_or(|s| s.contains("..")) {
             return Err(JssError::Validation("Invalid save path".into()));
         }
 
