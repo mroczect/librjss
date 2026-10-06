@@ -1,532 +1,988 @@
 .\" librjss.3 - manual page for librjss 2.3.0
-.\" Install: cp librjss.3 /usr/local/share/man/man3/
-.\"          mandb   (opsional)
+.\" Install: cp librjss.3 /usr/local/share/man/man3/ && mandb
+.\" Preview: man -l librjss.3
 .\"
-.TH LIBRJSS 3 "October 2026" "librjss 2.3.0" "Library Functions Manual"
+.TH LIBRJSS 3 "Oktober 2026" "librjss 2.3.0" "Library Functions Manual"
 .SH NAME
-librjss \- async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs.
+librjss \- async Rust client untuk Juragan Subsystem (JSS) / Frappe / ERPNext,
+dengan binding C lengkap (librjss-ffi).
 .SH SYNOPSIS
-.SS Cargo dependency
+.SS Rust
 .nf
-\fB[dependencies]\fR
-\fBlibrjss = { git = "https://github.com/mroczect/librjss.git", branch = "master" }\fR
+# Cargo.toml
+[dependencies]
+librjss    = { git = "https://github.com/mroczect/librjss", branch = "master" }
+tokio      = { version = "1", features = ["full"] }
+secrecy    = "0.10"
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
 .fi
-.SS Import in Rust code
+.PP
 .nf
-\fBuse librjss::{\fR
-    \fBRjssClient, ClientConfig, AuthMode, JssError,\fR
-    \fBSessionInfo, FrappeBoot, BootUser, BootUserInfo,\fR
-    \fBSidebarPages, SidebarPage, NavbarSettings, NavbarItem,\fR
-    \fBFrequentLink, PageInfo, ReportMeta, AppData,\fR
-    \fBSysDefaults, UserInfo,\fR
-\fB};\fR
+// Rust
+use librjss::{
+    RjssClient, ClientConfig, AuthMode, JssError,
+    SessionInfo, FrappeBoot, BootUser, BootUserInfo,
+    SidebarPages, SidebarPage, NavbarSettings, NavbarItem,
+    FrequentLink, PageInfo, ReportMeta, AppData,
+    SysDefaults, UserInfo,
+};
+use secrecy::SecretString;
+.fi
+.SS C
+.nf
+#include "librjss.h"
+
+/* Link:
+ *   cc app.c -I include \\
+ *      target/release/liblibrjss_ffi.a \\
+ *      -lpthread -ldl -lm -o app
+ */
 .fi
 .SH DESCRIPTION
-\fBlibrjss\fR is a lightweight asynchronous client that provides full access to a
-JSS (Frappe / ERPNext) server. It supports:
-.IP \[bu] 2
-Cookie\-based session authentication and API\-key/secret token authentication.
-.IP \[bu]
-Automatic CSRF token and \fBfrappe.boot\fR extraction from the \fB/app\fR
-dashboard, parsed through a JavaScript\-compatible reader (JSON5).
-.IP \[bu]
-Configurable retry with exponential backoff.
-.IP \[bu]
-Typed builders for reports and doctype CRUD, plus a full file upload/download API.
-.IP \[bu]
-A read\-only guard that refuses mutating requests unless the path is whitelisted.
-.IP \[bu]
-A rich error model mirroring Frappe JSON error responses.
-.IP \[bu]
-Unique trace ID per client for distributed tracing.
+.B librjss
+adalah client asinkron untuk server Frappe / ERPNext / Juragan Subsystem
+(JSS). Library ini menangani autentikasi, ekstraksi CSRF token dari
+.B frappe.boot
+di halaman
+.BR /app ,
+retry dengan exponential backoff, dan menyediakan API typed untuk
+operasi doctype, report, file, dan workflow.
 .PP
-This manual documents every public module, struct, enum, trait, and method
-available in librjss 2.3.0.
+Fitur utama:
+.IP \(bu 2
+Autentikasi ganda: session cookie (email/password) dan API token
+(api_key/api_secret).
+.IP \(bu
+Re-login otomatis ketika session expired (maksimum 3 percobaan).
+.IP \(bu
+Parsing
+.B frappe.boot
+menggunakan JSON5, sehingga kompatibel dengan JS object literal yang
+tidak strict JSON.
+.IP \(bu
+Builder typed untuk report dan doctype query.
+.IP \(bu
+Read-only guard yang memblokir POST/PUT/DELETE ke path yang tidak
+di-whitelist.
+.IP \(bu
+Error model yang mencerminkan envelope JSON Frappe
+.RB ( exc_type ", " _server_messages ", " exc ).
+.IP \(bu
+Trace ID (UUID v4) per client, muncul di setiap log line.
+.IP \(bu
+Binding C lengkap
+.RB ( librjss-ffi )
+untuk dipakai dari C, C++, Python (ctypes/cffi), Go (cgo), Java (JNI),
+dan bahasa lain yang bisa FFI ke C ABI.
+.PP
+Manual ini mendokumentasikan seluruh API publik
+.B librjss 2.3.0
+dan
+.BR librjss-ffi 2.3.0 .
 .SH CORE CONCEPTS
 .SS RjssClient
-Central struct holding configuration, HTTP client, session, credentials, boot
-data, and the read\-only guard.
+Struct pusat yang menyimpan konfigurasi, HTTP connection pool, session,
+credentials, boot data, dan read-only guard.
 .PP
-\fBConstructor:\fR
+Konstruktor:
 .RS 4
-\fBRjssClient::new(config: ClientConfig) -> Result<Self, JssError>\fR
-.br
-Validates configuration, builds a reqwest client with a cookie jar, timeout,
-and user\-agent, and installs the read\-only guard when enabled.
+.nf
+RjssClient::new(config: ClientConfig) -> Result<Self, JssError>
+.fi
 .RE
 .PP
-\fBAuthentication and session:\fR
-.TP
-\fBauthenticate(&mut self) -> Result<(), JssError>\fR
-Logs in using session or token (depending on \fBAuthMode\fR). In session mode
-it stores the credentials and calls login, which also fetches \fB/app\fR to
-extract the CSRF token and \fBfrappe.boot\fR. In token mode it constructs a
-synthetic \fBSessionInfo\fR and stores it.
-.TP
-\fBlogout(&mut self) -> Result<(), JssError>\fR
-Only meaningful for \fBAuthMode::Session\fR. Sends a logout request with the
-CSRF token, then clears both session and credentials.
-.TP
-\fBensure_session(&mut self) -> Result<(), JssError>\fR
-Verifies the current session by calling \fBget_logged_user\fR. On 401, the
-session is discarded and, if credentials are available, a fresh login is
-performed automatically. Up to 3 attempts.
-.PP
-\fBAccessors:\fR
-.TP
-\fBsession_info(&self) -> Option<&SessionInfo>\fR
-Current session data, if any.
-.TP
-\fBboot(&self) -> Option<&FrappeBoot>\fR
-The boot data extracted from \fB/app\fR after login. Contains user info,
-permissions, sidebar, versions, and more.
-.TP
-\fBbase_url(&self) -> &Url\fR
-The base server URL.
-.TP
-\fBtrace_id(&self) -> &str\fR
-UUID v4 for tracing/logging.
-.TP
-\fBis_readonly_guard_on(&self) -> bool\fR
-Whether the read\-only guard is active.
-.PP
-\fBAuthenticated HTTP:\fR
-.TP
-\fBauthenticated_get(&self, path: &str) -> Result<String, JssError>\fR
-.TP
-\fBauthenticated_post(&self, path: &str, body_json: &str) -> Result<String, JssError>\fR
-.TP
-\fBauthenticated_put(&self, path: &str, body_json: &str) -> Result<String, JssError>\fR
-.TP
-\fBauthenticated_delete(&self, path: &str) -> Result<String, JssError>\fR
-Send the corresponding HTTP request to the path joined with base_url. They
-attach the appropriate authorization header (token or CSRF) and handle retry
-with exponential backoff. Mutating methods (POST, PUT, DELETE) pass through
-the read\-only guard first.
-.TP
-\fBpost_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError>\fR
-Sends \fBapplication/x\-www\-form\-urlencoded\fR. Useful for APIs such as global
-search, link search, and workflow transitions.
-.PP
-\fBPermission helpers (from boot data):\fR
-.TP
-\fBcan_read(&self, doctype: &str) -> bool\fR
-.TP
-\fBcan_write(&self, doctype: &str) -> bool\fR
-.TP
-\fBcan_create(&self, doctype: &str) -> bool\fR
-.TP
-\fBcan_submit(&self, doctype: &str) -> bool\fR
-.TP
-\fBcan_delete(&self, doctype: &str) -> bool\fR
-.TP
-\fBaccessible_doctypes(&self) -> Vec<String>\fR
-Union of read, write, and create permissions, sorted.
-.PP
-\fBFile operations:\fR
-.TP
-\fBupload_file(&self, file_name: &str, file_content: Vec<u8>, doctype: &str, docname: &str, fieldname: &str) -> Result<String, JssError>\fR
-Uploads via multipart/form\-data to \fB/api/method/upload_file\fR. The
-file name must not contain \fB/\fR, \fB\\\\\fR, or \fB..\fR.
-.TP
-\fBdownload_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>\fR
-Downloads a file from a relative URL (e.g.\fB"/files/photo.png"\fR). Returns
-raw bytes. Absolute URLs and path traversal are rejected.
-.TP
-\fBdownload_file_to_path(&self, file_url: &str, save_path: &Path) -> Result<(), JssError>\fR
-Same as above, but writes directly to disk.
-.TP
-\fBdownload_pdf_kartu_piutang(&self, doctype: &str, name: &str, format: &str, no_letterhead: bool) -> Result<Vec<u8>, JssError>\fR
-Downloads a PDF for a specific print format via
-\fB/api/method/frappe.utils.print_format.download_pdf\fR. Returns the raw
-PDF bytes. Attaches CSRF and any token authorization.
-.PP
-\fBReports and resources:\fR
-.TP
-\fBreport(&self, name: &str) -> ReportBuilder\fR
-Returns a builder for running a named Frappe query report.
-.TP
-\fBdoctype(&self, name: &str) -> ResourceBuilder\fR
-Returns a builder for fetching document lists.
-.TP
-\fBget_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>\fR
-Fetches a single document by name.
-.TP
-\fBget_doc_json(&self, doctype: &str, name: &str) -> Result<serde_json::Value, JssError>\fR
-Shortcut returning a \fBserde_json::Value\fR.
-.TP
-\fBcreate_doc(&self, doctype: &str, data: &impl Serialize) -> Result<String, JssError>\fR
-.TP
-\fBupdate_doc(&self, doctype: &str, name: &str, data: &impl Serialize) -> Result<String, JssError>\fR
-.TP
-\fBdelete_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>\fR
-.TP
-\fBrun_report(&self, report_name: &str, filters: serde_json::Value) -> Result<String, JssError>\fR
-Runs a query report via \fBfrappe.desk.query_report.run\fR.
-.TP
-\fBcall_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>\fR
-Calls a whitelisted server method with JSON POST body.
-.PP
-\fBFrappe\-specific convenience:\fR
-.TP
-\fBglobal_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>\fR
-Calls \fBfrappe.utils.global_search.search\fR.
-.TP
-\fBsearch_link(&self, txt: &str, doctype: &str, reference_doctype: &str, page_length: u32) -> Result<String, JssError>\fR
-Autocomplete for link fields: \fBfrappe.desk.search.search_link\fR.
-.TP
-\fBget_transitions(&self, doc_json: &str) -> Result<String, JssError>\fR
-Raw workflow transitions: \fBfrappe.model.workflow.get_transitions\fR.
-.TP
-\fBsave_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>\fR
-Calls \fBfrappe.model.utils.user_settings.save\fR.
-.TP
-\fBget_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssError>\fR
-Calls \fBfrappe.desk.reportview.get_count\fR.
-.TP
-\fBget_list(&self, doctype, fields_json, filters_json, or_filters_json, order_by, start, page_length, view, group_by, with_comment_count) -> Result<String, JssError>\fR
-Gets a list of documents with complex filters. Calls
-\fBfrappe.desk.reportview.get_list\fR. See \fBSYNOPSIS\fR for full parameter
-types.
-.TP
-\fBget_list_settings(&self, doctype: &str) -> Result<String, JssError>\fR
-Calls \fBfrappe.desk.listview.get_list_settings\fR.
-.TP
-\fBget_doctype_meta(&self, doctype: &str) -> Result<String, JssError>\fR
-Calls \fBfrappe.desk.form.load.getdoctype\fR.
-.TP
-\fBfile_list(&self, folder: &str, limit: u32, extra_filters: Option<Vec<(&str, &str, &str, &str)>>) -> Result<String, JssError>\fR
-Lists files in a folder using the resource API.
-.TP
-\fBget_notifications(&self, limit: u32) -> Result<String, JssError>\fR
-Notification logs for the current user.
-.TP
-\fBget_events(&self, start: &str, end: &str) -> Result<String, JssError>\fR
-Calendar events for a date range.
-.TP
-\fBget_desktop_page(&self, name: &str, title: &str, public: bool) -> Result<String, JssError>\fR
-Calls \fBfrappe.desk.desktop.get_desktop_page\fR.
-.TP
-\fBget_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>\fR
-JSS\-specific: loads lazy child table rows.
-.PP
-\fBWorkflow helpers (typed):\fR
-.TP
-\fBworkflow_transitions(&self, doctype: &str, name: &str) -> Result<Vec<WorkflowTransition>, JssError>\fR
-Returns typed list of transitions for a document.
-.TP
-\fBapply_workflow(&self, doctype: &str, name: &str, action: &str) -> Result<serde_json::Value, JssError>\fR
-Applies a workflow action to a document.
-.TP
-\fBtransition_to_state(&self, doctype: &str, name: &str, target_state: &str) -> Result<serde_json::Value, JssError>\fR
-Finds the transition whose \fBnext_state\fR equals \fItarget_state\fR and
-applies its action. Returns \fBJssError::Validation\fR if no such transition
-exists.
-.PP
-\fBBoot data accessors:\fR
-.TP
-\fBuser_info_map(&self) -> Option<&HashMap<String, BootUserInfo>>\fR
-.TP
-\fBsidebar_pages(&self) -> Option<&SidebarPages>\fR
-.TP
-\fBnavbar_settings(&self) -> Option<&NavbarSettings>\fR
-.TP
-\fBversions(&self) -> Option<&HashMap<String, String>>\fR
-.TP
-\fBlang_dict(&self) -> Option<&HashMap<String, String>>\fR
-.TP
-\fBfrequent_links(&self) -> Option<&[FrequentLink]>\fR
-.TP
-\fBis_developer_mode(&self) -> bool\fR
-True when \fBdeveloper_mode != 0\fR in boot.
-.TP
-\fBis_read_only(&self) -> bool\fR
-Reflects the \fBread_only\fR field from boot.
+Memvalidasi config, membangun
+.B reqwest::Client
+dengan cookie jar, timeout, dan user-agent, lalu menginstal
+read-only guard jika diaktifkan.
 .SS AuthMode
-Authentication strategy selection.
-.PP
+Pemilihan strategi autentikasi.
 .nf
-\fBpub enum AuthMode {\fR
-    \fBSession {\fR
-        \fBemail: secrecy::SecretString,\fR
-        \fBpassword: secrecy::SecretString,\fR
-    \fB},\fR
-    \fBToken {\fR
-        \fBapi_key: String,\fR
-        \fBapi_secret: secrecy::SecretString,\fR
-    \fB},\fR
-\fB}\fR
+
+  pub enum AuthMode {
+      Session { email: SecretString, password: SecretString },
+      Token   { api_key: String,       api_secret: SecretString },
+  }
+
 .fi
-.IP \[bu] 2
-\fBSession\fR \- logs in with email/password, manages session cookies, and
-extracts the CSRF token and boot data from \fB/app\fR.
-.IP \[bu]
-\fBToken\fR \- sends \fBAuthorization: token api_key:api_secret\fR on every
-request. No explicit login or logout is required. \fBlogout()\fR is a no-op
-in this mode.
+.IP \(bu 2
+.B Session
+\(em login dengan email/password, mengelola cookie session, mengekstrak
+CSRF token dan boot data dari
+.BR /app .
+.IP \(bu
+.B Token
+\(em mengirim header
+.B "Authorization: token api_key:api_secret"
+di setiap request. Tidak ada login/logout eksplisit;
+.B logout()
+menjadi no-op dalam mode ini.
+.PP
+Kedua field secret dibungkus
+.BR secrecy::SecretString ,
+tidak pernah diserialisasi, dan di-zeroize saat drop.
 .SS ClientConfig
-Configuration container validated at client creation.
-.PP
 .nf
-\fBpub struct ClientConfig {\fR
-    \fBpub base_url: reqwest::Url,\fR
-    \fBpub auth_mode: AuthMode,\fR
-    \fBpub expected_sitename: Option<String>,\fR
-    \fBpub required_roles: Vec<String>,\fR
-    \fBpub timeout_secs: u64,          // default 30\fR
-    \fBpub max_retries: u32,           // default 3\fR
-    \fBpub user_agent: String,\fR
-    \fBpub insecure_ssl: bool,         // default false\fR
-    \fBpub readonly_guard: bool,       // default true\fR
-\fB}\fR
+
+  pub struct ClientConfig {
+      pub base_url:          reqwest::Url,
+      pub auth_mode:         AuthMode,
+      pub expected_sitename: Option<String>,
+      pub required_roles:    Vec<String>,
+      pub timeout_secs:      u64,       // default 30
+      pub max_retries:       u32,       // default 3
+      pub user_agent:        String,
+      pub insecure_ssl:      bool,      // default false
+      pub readonly_guard:    bool,      // default true
+  }
+
 .fi
 .PP
-\fBMethods:\fR
+Field:
 .TP
-\fBvalidate(&self) -> Result<(), JssError>\fR
-Ensures HTTPS unless \fBinsecure_ssl\fR is true. For \fBSession\fR mode it
-requires non\-empty email and password. Rejects dangerous URL schemes
-(\fBdata\fR, \fBjavascript\fR, \fBvbscript\fR).
+.B base_url
+URL server. Harus menyertakan scheme dan host. Trailing slash opsional.
 .TP
-\fBfrom_env() -> Result<Self, JssError>\fR
-Builds a config from environment variables (see \fBCONFIGURATION\fR).
+.B auth_mode
+.B Session
+atau
+.BR Token .
+.TP
+.B expected_sitename
+Jika di-set, login gagal dengan
+.B SitenameMismatch
+ketika
+.B frappe.boot.sitename
+tidak cocok.
+.TP
+.B required_roles
+Jika tidak kosong, login gagal kecuali user memiliki minimal satu role
+yang disebutkan.
+.TP
+.B timeout_secs
+Timeout per-request.
+.TP
+.B max_retries
+Jumlah retry untuk error transient (5xx, 429, network).
+.TP
+.B user_agent
+Dikirim di setiap request.
+.TP
+.B insecure_ssl
+Menerima certificate TLS self-signed / invalid.
+.TP
+.B readonly_guard
+Mengaktifkan read-only guard. Lihat
+.BR "READ-ONLY GUARD" .
+.PP
+Method:
+.TP
+.B validate(&self) -> Result<(), JssError>
+Memaksa HTTPS kecuali
+.B insecure_ssl
+true. Untuk
+.B Session
+mode, email dan password tidak boleh kosong. Menolak scheme URL
+.BR data ", " javascript ", " vbscript .
+.TP
+.B from_env() -> Result<Self, JssError>
+Membangun config dari environment variable. Lihat
+.BR "ENVIRONMENT VARIABLES" .
 .SS JssError
-Comprehensive error type covering all failure modes.
-.PP
 .nf
-\fBpub enum JssError {\fR
-    \fBConfig(String),\fR
-    \fBValidation(String),\fR
-    \fBNetwork(reqwest::Error),\fR
-    \fBHttp { status: StatusCode, body: String },\fR
-    \fBApiError { exc_type: String, message: String, status: StatusCode },\fR
-    \fBAuth(String),\fR
-    \fBCsrf(String),\fR
-    \fBPermission(String),\fR
-    \fBSitenameMismatch { expected: String, actual: String },\fR
-    \fBNotAuthenticated,\fR
-    \fBRateLimited { retry_after: Option<u64> },\fR
-    \fBParse(String),\fR
-    \fBExpired,\fR
-    \fBCancelled,\fR
-    \fBFileOperation(String),\fR
-    \fBInternal(String),\fR
-\fB}\fR
+
+  pub enum JssError {
+      Config(String),
+      Validation(String),
+      Network(reqwest::Error),
+      Http   { status: StatusCode, body: String },
+      ApiError { exc_type: String, message: String, status: StatusCode },
+      Auth(String),
+      Csrf(String),
+      Permission(String),
+      SitenameMismatch { expected: String, actual: String },
+      NotAuthenticated,
+      RateLimited { retry_after: Option<u64> },
+      Parse(String),
+      Expired,
+      Cancelled,
+      FileOperation(String),
+      Internal(String),
+  }
+
 .fi
-.PP
-\fBHelper methods:\fR
 .TP
-\fBfrom_api_response(status: StatusCode, body: &str) -> JssError\fR
-Parses a Frappe JSON error body. If \fBexc_type\fR is present, returns
-\fBApiError\fR; otherwise returns \fBHttp\fR.
+.B from_api_response(status: StatusCode, body: &str) -> JssError
+Mem-parsing envelope error JSON Frappe. Jika
+.B exc_type
+ada, return
+.BR ApiError ;
+sebaliknya return
+.BR Http .
 .TP
-\fBstatus_code(&self) -> StatusCode\fR
-Maps each variant to an HTTP status code: \fBConfig\fR, \fBValidation\fR,
-\fBInternal\fR, \fBParse\fR, \fBFileOperation\fR → 500; \fBNetwork\fR → 502;
-\fBHttp\fR and \fBApiError\fR → carried status; \fBAuth\fR,
-\fBNotAuthenticated\fR, \fBExpired\fR → 401; \fBCsrf\fR, \fBPermission\fR,
-\fBSitenameMismatch\fR → 403; \fBRateLimited\fR → 429; \fBCancelled\fR → 503.
+.B status_code(&self) -> StatusCode
+Memetakan varian ke HTTP status:
+.BR Config ", " Validation ", " Internal ", " Parse ", " FileOperation
+\(-> 500;
+.B Network
+\(-> 502;
+.BR Http " dan " ApiError
+\(-> membawa status;
+.BR Auth ", " NotAuthenticated ", " Expired
+\(-> 401;
+.BR Csrf ", " Permission ", " SitenameMismatch
+\(-> 403;
+.B RateLimited
+\(-> 429;
+.B Cancelled
+\(-> 503.
 .SS SessionInfo
-Session data stored after a successful login.
-.PP
 .nf
-\fBpub struct SessionInfo {\fR
-    \fBpub sid: secrecy::SecretString,\fR
-    \fBpub csrf_token: secrecy::SecretString,\fR
-    \fBpub full_name: Option<String>,\fR
-    \fBpub sitename: String,\fR
-    \fBpub roles: Vec<String>,\fR
-\fB}\fR
+
+  pub struct SessionInfo {
+      pub sid:        secrecy::SecretString,
+      pub csrf_token: secrecy::SecretString,
+      pub full_name:  Option<String>,
+      pub sitename:   String,
+      pub roles:      Vec<String>,
+  }
+
 .fi
-.IP \[bu] 2
-\fBsid\fR \- session ID from the login response (or "token\-mode" literal).
-.IP \[bu]
-\fBcsrf_token\fR \- token extracted from the \fB/app\fR page.
-.IP \[bu]
-\fBfull_name\fR \- user's full name (from boot or login response).
-.IP \[bu]
-\fBsitename\fR \- site name from \fBfrappe.boot\fR.
-.IP \[bu]
-\fBroles\fR \- user role list.
-.SS FrappeBoot and related types
-Data structure deserialized from the JavaScript \fBfrappe.boot\fR object on
-the \fB/app\fR page. All fields have defaults (mostly \fBOption\fR or empty
-collections), so missing keys never fail the whole deserialization.
+Tersedia setelah
+.B authenticate()
+sukses. Dalam mode
+.BR Token ,
+field
+.B sid
+berisi literal
+.BR "token-mode" ,
+.B csrf_token
+kosong, dan
+.B roles
+kosong.
+.SS FrappeBoot
+Hasil parsing objek JavaScript
+.B frappe.boot
+dari halaman
+.BR /app .
+Semua field memiliki default, sehingga penambahan field baru oleh Frappe
+tidak akan memutus deserialisasi.
 .PP
-\fBFrappeBoot\fR (most important fields):
-.RS 4
+Field utama:
 .nf
-\fBpub user: BootUser,\fR
-\fBpub sitename: String,\fR
-\fBpub csrf_token: String,\fR
-\fBpub sysdefaults: SysDefaults,\fR
-\fBpub app_logo_url: Option<String>,\fR
-\fBpub home_page: Option<String>,\fR
-\fBpub allow_modules: Vec<String>,\fR
-\fBpub can_select: Vec<String>,\fR
-\fBpub can_create: Vec<String>,\fR
-\fBpub can_write: Vec<String>,\fR
-\fBpub can_read: Vec<String>,\fR
-\fBpub can_submit: Vec<String>,\fR
-\fBpub can_cancel: Vec<String>,\fR
-\fBpub can_delete: Vec<String>,\fR
-\fBpub can_get_report: Vec<String>,\fR
-\fBpub all_reports: HashMap<String, ReportMeta>,\fR
-\fBpub module_wise_workspaces: HashMap<String, Vec<String>>,\fR
-\fBpub dashboards: Vec<DashboardMeta>,\fR
-\fBpub single_types: Vec<String>,\fR
-\fBpub calendars: Vec<String>,\fR
-\fBpub treeviews: Vec<String>,\fR
-\fBpub module_app: HashMap<String, String>,\fR
-\fBpub app_data: Vec<AppData>,\fR
-\fBpub user_info: HashMap<String, BootUserInfo>,\fR
-\fBpub sidebar_pages: SidebarPages,\fR
-\fBpub navbar_settings: Option<NavbarSettings>,\fR
-\fBpub versions: HashMap<String, String>,\fR
-\fBpub lang_dict: HashMap<String, String>,\fR
-\fBpub lang: Option<String>,\fR
-\fBpub timezone_info: Option<serde_json::Value>,\fR
-\fBpub page_info: HashMap<String, PageInfo>,\fR
-\fBpub frequently_visited_links: Vec<FrequentLink>,\fR
-\fBpub developer_mode: i32,\fR
-\fBpub read_only: bool,\fR
-\fBpub socketio_port: Option<u16>,\fR
-\fBpub desk_settings: HashMap<String, serde_json::Value>,\fR
-\fBpub desk_theme: Option<String>,\fR
+
+  pub user:                     BootUser,
+  pub sitename:                 String,
+  pub csrf_token:               String,
+  pub sysdefaults:              SysDefaults,
+  pub app_logo_url:             Option<String>,
+  pub home_page:                Option<String>,
+  pub allow_modules:            Vec<String>,
+  pub can_select:               Vec<String>,
+  pub can_create:               Vec<String>,
+  pub can_write:                Vec<String>,
+  pub can_read:                 Vec<String>,
+  pub can_submit:               Vec<String>,
+  pub can_cancel:               Vec<String>,
+  pub can_delete:               Vec<String>,
+  pub can_get_report:           Vec<String>,
+  pub all_reports:              HashMap<String, ReportMeta>,
+  pub module_wise_workspaces:   HashMap<String, Vec<String>>,
+  pub dashboards:               Vec<DashboardMeta>,
+  pub single_types:             Vec<String>,
+  pub calendars:                Vec<String>,
+  pub treeviews:                Vec<String>,
+  pub module_app:               HashMap<String, String>,
+  pub app_data:                 Vec<AppData>,
+  pub user_info:                HashMap<String, BootUserInfo>,
+  pub sidebar_pages:            SidebarPages,
+  pub navbar_settings:          Option<NavbarSettings>,
+  pub versions:                 HashMap<String, String>,
+  pub lang_dict:                HashMap<String, String>,
+  pub lang:                     Option<String>,
+  pub timezone_info:            Option<serde_json::Value>,
+  pub page_info:                HashMap<String, PageInfo>,
+  pub frequently_visited_links: Vec<FrequentLink>,
+  pub developer_mode:           i32,
+  pub read_only:                bool,
+  pub socketio_port:            Option<u16>,
+  pub desk_settings:            HashMap<String, serde_json::Value>,
+  pub desk_theme:               Option<String>,
+
 .fi
-.RE
-.PP
-\fBBootUser\fR:
-Contains \fBname\fR, \fBemail\fR, \fBfull_name\fR, \fBroles\fR,
-\fBuser_type\fR, \fBpermissions\fR (map of doctype to allowed actions), and
-permission vectors \fBcan_select\fR, \fBcan_create\fR, \fBcan_write\fR,
-\fBcan_read\fR, \fBcan_submit\fR, \fBcan_cancel\fR, \fBcan_delete\fR,
-\fBcan_get_report\fR, and \fBall_reports\fR.
-.PP
-\fBSysDefaults\fR: \fBdefault_app: Option<String>\fR,
-\fBtime_zone: Option<String>\fR.
-.PP
-\fBReportMeta\fR: \fBmodified\fR, \fBtitle\fR, \fBref_doctype\fR,
-\fBreport_type\fR.
-.PP
-\fBDashboardMeta\fR: \fBname: String\fR.
-.PP
-\fBAppData\fR: \fBapp_name\fR, \fBapp_title\fR, \fBapp_route\fR,
-\fBapp_logo_url\fR, \fBmodules\fR, \fBworkspaces\fR.
-.PP
-\fBBootUserInfo\fR: \fBfullname\fR, \fBimage\fR, \fBname\fR, \fBemail\fR,
-\fBtime_zone\fR.
-.PP
-\fBSidebarPages\fR: \fBworkspace_setup_completed: Option<i32>\fR,
-\fBpages: Vec<SidebarPage>\fR, \fBhas_access: bool\fR,
-\fBhas_create_access: bool\fR.
-.PP
-\fBSidebarPage\fR: \fBname\fR, \fBtitle\fR, \fBfor_user\fR,
-\fBparent_page\fR, \fBcontent\fR, \fBpublic\fR, \fBmodule\fR, \fBicon\fR,
-\fBindicator_color\fR, \fBis_hidden\fR, \fBapp\fR, \fBtype\fR,
-\fBlink_type\fR, \fBlink_to\fR, \fBexternal_link\fR, \fBlabel\fR.
-.PP
-\fBNavbarSettings\fR: \fBsettings_dropdown: Vec<NavbarItem>\fR,
-\fBhelp_dropdown: Vec<NavbarItem>\fR.
-.PP
-\fBNavbarItem\fR: \fBitem_label\fR, \fBitem_type\fR, \fBaction\fR,
-\fBroute\fR, \fBhidden\fR, \fBis_standard\fR.
-.PP
-\fBPageInfo\fR: \fBtitle\fR, \fBmodified\fR.
-.PP
-\fBFrequentLink\fR: \fBroute: String\fR, \fBcount: i32\fR.
-.SS AuthEndpoints (trait)
-Implemented by \fBRjssClient\fR. Provides static URL builders usable without
-a client instance.
-.PP
-.nf
-\fBpub trait AuthEndpoints {\fR
-    \fBfn login_url(base: &Url) -> Result<Url, JssError>;\fR
-    \fBfn logout_url(base: &Url) -> Result<Url, JssError>;\fR
-    \fBfn csrf_token_url(base: &Url) -> Result<Url, JssError>;\fR
-    \fBfn get_logged_user_url(base: &Url) -> Result<Url, JssError>;\fR
-    \fBfn app_page_url(base: &Url) -> Result<Url, JssError>;\fR
-\fB}\fR
-.fi
-.PP
-Each yields URLs such as \fB/api/method/login\fR, \fB/api/method/logout\fR,
-\fB/api/method/frappe.auth.get_csrf_token\fR,
-\fB/api/method/frappe.auth.get_logged_user\fR, and \fB/app\fR.
+Tipe pendukung:
+.TP
+.B BootUser
+.BR name ", " email ", " full_name ", " roles ", " user_type ", "
+.BR permissions ,
+serta vektor
+.BR can_select ", " can_create ", " can_write ", " can_read ", "
+.BR can_submit ", " can_cancel ", " can_delete ", " can_get_report ", "
+dan
+.BR all_reports .
+.TP
+.B SysDefaults
+.BR default_app ", " time_zone .
+.TP
+.B ReportMeta
+.BR modified ", " title ", " ref_doctype ", " report_type .
+.TP
+.B DashboardMeta
+.B name .
+.TP
+.B AppData
+.BR app_name ", " app_title ", " app_route ", " app_logo_url ", "
+.BR modules ", " workspaces .
+.TP
+.B BootUserInfo
+.BR fullname ", " image ", " name ", " email ", " time_zone .
+.TP
+.B SidebarPages
+.BR workspace_setup_completed ", " pages ", " has_access ", "
+.BR has_create_access .
+.TP
+.B SidebarPage
+.BR name ", " title ", " for_user ", " parent_page ", " content ", "
+.BR public ", " module ", " icon ", " indicator_color ", " is_hidden ", "
+.BR app ", " type ", " link_type ", " link_to ", " external_link ", "
+.BR label .
+.TP
+.B NavbarSettings
+.BR settings_dropdown ", " help_dropdown .
+.TP
+.B NavbarItem
+.BR item_label ", " item_type ", " action ", " route ", " hidden ", "
+.BR is_standard .
+.TP
+.B PageInfo
+.BR title ", " modified .
+.TP
+.B FrequentLink
+.BR route ", " count .
+.SH RUST API
+Semua method di bawah ini diimplementasikan pada
+.BR RjssClient .
+.SS Authentication and session
+.TP
+.B authenticate(&mut self) -> Result<(), JssError>
+Login menggunakan
+.BR AuthMode .
+Dalam mode
+.BR Session ,
+menyimpan credentials dan memanggil login, yang juga mengambil
+.B /app
+untuk mengekstrak CSRF token dan
+.BR frappe.boot .
+Dalam mode
+.BR Token ,
+membuat
+.B SessionInfo
+sintetis.
+.TP
+.B logout(&mut self) -> Result<(), JssError>
+Hanya bermakna untuk
+.BR AuthMode::Session .
+Mengirim request logout dengan CSRF token, lalu membersihkan session dan
+credentials.
+.TP
+.B ensure_session(&mut self) -> Result<(), JssError>
+Memverifikasi session dengan memanggil
+.BR get_logged_user .
+Pada 401, membuang session dan login ulang secara otomatis menggunakan
+credentials yang tersimpan. Maksimum 3 percobaan.
+.SS Accessors
+.TP
+.B session_info(&self) -> Option<&SessionInfo>
+Data session saat ini, jika ada.
+.TP
+.B boot(&self) -> Option<&FrappeBoot>
+Boot data yang diekstrak dari
+.B /app
+setelah login.
+.TP
+.B base_url(&self) -> &Url
+Base URL server.
+.TP
+.B trace_id(&self) -> &str
+UUID v4 untuk tracing/logging.
+.TP
+.B is_readonly_guard_on(&self) -> bool
+Apakah read-only guard aktif.
+.SS Authenticated HTTP
+.TP
+.B authenticated_get(&self, path: &str) -> Result<String, JssError>
+.TP
+.B authenticated_post(&self, path: &str, body_json: &str) -> Result<String, JssError>
+.TP
+.B authenticated_put(&self, path: &str, body_json: &str) -> Result<String, JssError>
+.TP
+.B authenticated_delete(&self, path: &str) -> Result<String, JssError>
+Mengirim request HTTP yang sesuai ke path yang di-join dengan
+.BR base_url .
+Method ini memasang header otorisasi (token atau CSRF) dan menangani
+retry dengan exponential backoff. Method mutasi (POST, PUT, DELETE)
+melewati read-only guard terlebih dahulu.
+.TP
+.B post_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError>
+Mengirim
+.BR application/x-www-form-urlencoded .
+Berguna untuk API seperti global search, link search, dan workflow
+transitions.
+.SS Permission checks (dari boot data)
+.TP
+.B can_read(&self, doctype: &str) -> bool
+.TP
+.B can_write(&self, doctype: &str) -> bool
+.TP
+.B can_create(&self, doctype: &str) -> bool
+.TP
+.B can_submit(&self, doctype: &str) -> bool
+.TP
+.B can_delete(&self, doctype: &str) -> bool
+.TP
+.B accessible_doctypes(&self) -> Vec<String>
+Union dari read, write, dan create permission, terurut.
+.SS File operations
+.TP
+.B upload_file(&self, file_name, file_content, doctype, docname, fieldname) -> Result<String, JssError>
+Upload via multipart ke
+.BR /api/method/upload_file .
+.B file_name
+tidak boleh mengandung
+.BR / ", " \\e ", atau " .. .
+.TP
+.B download_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>
+Download file dari URL relatif (mis.
+.BR "/files/photo.png" ).
+Return raw bytes. URL absolut dan path traversal ditolak.
+.TP
+.B download_file_to_path(&self, file_url: &str, save_path: &Path) -> Result<(), JssError>
+Sama seperti di atas, tetapi langsung menulis ke disk.
+.TP
+.B download_pdf_kartu_piutang(&self, doctype, name, format, no_letterhead) -> Result<Vec<u8>, JssError>
+Download PDF untuk print format tertentu via
+.BR /api/method/frappe.utils.print_format.download_pdf .
+Melekatkan CSRF dan otorisasi token.
+.SS Reports and resources
+.TP
+.B report(&self, name: &str) -> ReportBuilder
+Builder untuk menjalankan query report bernama.
+.TP
+.B doctype(&self, name: &str) -> ResourceBuilder
+Builder untuk fetch list dokumen.
+.TP
+.B get_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>
+Fetch dokumen tunggal.
+.TP
+.B get_doc_json(&self, doctype: &str, name: &str) -> Result<serde_json::Value, JssError>
+Shortcut yang mengembalikan
+.BR serde_json::Value .
+.TP
+.B create_doc(&self, doctype: &str, data: &impl Serialize) -> Result<String, JssError>
+.TP
+.B update_doc(&self, doctype: &str, name: &str, data: &impl Serialize) -> Result<String, JssError>
+.TP
+.B delete_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>
+.TP
+.B run_report(&self, report_name: &str, filters: serde_json::Value) -> Result<String, JssError>
+Menjalankan query report via
+.BR frappe.desk.query_report.run .
+.TP
+.B call_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>
+Memanggil method server yang di-whitelist dengan JSON POST body.
+.SS Frappe-specific convenience
+.TP
+.B global_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>
+Memanggil
+.BR frappe.utils.global_search.search .
+.TP
+.B search_link(&self, txt, doctype, reference_doctype, page_length) -> Result<String, JssError>
+Autocomplete untuk link field:
+.BR frappe.desk.search.search_link .
+.TP
+.B get_transitions(&self, doc_json: &str) -> Result<String, JssError>
+Raw workflow transitions:
+.BR frappe.model.workflow.get_transitions .
+.TP
+.B save_user_settings(&self, doctype, user_settings) -> Result<String, JssError>
+Memanggil
+.BR frappe.model.utils.user_settings.save .
+.TP
+.B get_count(&self, doctype, filters_json, fields_json, distinct) -> Result<String, JssError>
+Memanggil
+.BR frappe.desk.reportview.get_count .
+.TP
+.B get_list(&self, doctype, fields_json, filters_json, or_filters_json, order_by, start, page_length, view, group_by, with_comment_count) -> Result<String, JssError>
+Mengambil list dokumen dengan filter kompleks. Memanggil
+.BR frappe.desk.reportview.get_list .
+.TP
+.B get_list_settings(&self, doctype: &str) -> Result<String, JssError>
+Memanggil
+.BR frappe.desk.listview.get_list_settings .
+.TP
+.B get_doctype_meta(&self, doctype: &str) -> Result<String, JssError>
+Memanggil
+.BR frappe.desk.form.load.getdoctype .
+.TP
+.B file_list(&self, folder: &str, limit: u32, extra_filters) -> Result<String, JssError>
+List file dalam folder menggunakan resource API.
+.B extra_filters
+bertipe
+.BR Option<Vec<(&str,&str,&str,&str)>> .
+.TP
+.B get_notifications(&self, limit: u32) -> Result<String, JssError>
+Notification log untuk user saat ini.
+.TP
+.B get_events(&self, start: &str, end: &str) -> Result<String, JssError>
+Calendar event untuk rentang tanggal.
+.TP
+.B get_desktop_page(&self, name, title, public) -> Result<String, JssError>
+Memanggil
+.BR frappe.desk.desktop.get_desktop_page .
+.TP
+.B get_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>
+JSS-specific: memuat baris child table secara lazy.
+.SS Workflow helpers (typed)
+.TP
+.B workflow_transitions(&self, doctype, name) -> Result<Vec<WorkflowTransition>, JssError>
+Return list typed transisi untuk sebuah dokumen.
+.TP
+.B apply_workflow(&self, doctype, name, action) -> Result<serde_json::Value, JssError>
+Menerapkan aksi workflow ke dokumen.
+.TP
+.B transition_to_state(&self, doctype, name, target_state) -> Result<serde_json::Value, JssError>
+Mencari transisi dengan
+.B next_state
+yang sama dengan
+.IR target_state
+lalu menerapkan aksinya. Return
+.B JssError::Validation
+jika tidak ada transisi yang cocok.
+.SS Boot data accessors
+.TP
+.B user_info_map(&self) -> Option<&HashMap<String, BootUserInfo>>
+.TP
+.B sidebar_pages(&self) -> Option<&SidebarPages>
+.TP
+.B navbar_settings(&self) -> Option<&NavbarSettings>
+.TP
+.B versions(&self) -> Option<&HashMap<String, String>>
+.TP
+.B lang_dict(&self) -> Option<&HashMap<String, String>>
+.TP
+.B frequent_links(&self) -> Option<&[FrequentLink]>
+.TP
+.B is_developer_mode(&self) -> bool
+True ketika
+.B developer_mode != 0
+di boot.
+.TP
+.B is_read_only(&self) -> bool
+Merefleksikan field
+.B read_only
+dari boot.
+.SH BUILDERS
 .SS ReportBuilder
-Built by \fBRjssClient::report()\fR. Chainable filters before executing.
-.PP
-\fBMethods:\fR
+Dibuat oleh
+.BR RjssClient::report() .
 .TP
-\fBadd_filter(mut self, field: &str, value: &str) -> Self\fR
-Adds a \fB(field, value)\fR filter. Chainable.
+.B add_filter(mut self, field: &str, value: &str) -> Self
+Menambahkan filter
+.RB ( field ", " value ).
+Chainable.
 .TP
-\fBasync run_raw(&self) -> Result<String, JssError>\fR
-Runs the report and returns raw JSON.
+.B run_raw(&self) -> Result<String, JssError>
+Menjalankan report dan mengembalikan JSON mentah.
 .TP
-\fBasync run<T: DeserializeOwned>(&self) -> Result<T, JssError>\fR
-Runs the report and deserializes into \fIT\fR.
+.B run<T: DeserializeOwned>(&self) -> Result<T, JssError>
+Menjalankan report dan mendeserialisasi ke
+.IR T .
 .SS ResourceBuilder
-Built by \fBRjssClient::doctype()\fR. Builder for document listing with
-filters, field selection, ordering, and pagination.
-.PP
-\fBMethods:\fR
+Dibuat oleh
+.BR RjssClient::doctype() .
 .TP
-\fBfilter(mut self, field: &str, operator: &str, value: &str) -> Self\fR
-Adds a filter condition (e.g.\fB.filter("status", "=", "Open")\fR).
+.B filter(mut self, field: &str, operator: &str, value: &str) -> Self
+Menambahkan kondisi filter. Contoh:
+.BR .filter("status", "=", "Open") .
+Operator yang didukung:
+.BR = ", " != ", " > ", " < ", " >= ", " <= ", " like ", " in ", "
+.BR "not in" ", " is ", " between .
 .TP
-\fBfields(mut self, fields: Vec<&str>) -> Self\fR
-Selects which fields to return (sent as a JSON array).
+.B fields(mut self, fields: Vec<&str>) -> Self
+Memilih field yang dikembalikan (dikirim sebagai JSON array).
 .TP
-\fBorder_by(mut self, order: &str) -> Self\fR
-Ordering (e.g.\fB"creation desc"\fR).
+.B order_by(mut self, order: &str) -> Self
+Ordering. Contoh:
+.BR "creation desc" .
 .TP
-\fBlimit(mut self, limit: u32) -> Self\fR
-Page size. If \fB0\fR is passed, falls back to \fB200\fR with a warning.
+.B limit(mut self, limit: u32) -> Self
+Page size. Jika
+.B 0
+diberikan, jatuh ke
+.B 200
+dengan warning.
 .TP
-\fBlimit_start(mut self, start: u32) -> Self\fR
+.B limit_start(mut self, start: u32) -> Self
 Starting index.
 .TP
-\fBasync execute_raw(&self) -> Result<String, JssError>\fR
-Executes and returns raw JSON.
+.B execute_raw(&self) -> Result<String, JssError>
+Eksekusi dan return JSON mentah.
 .TP
-\fBasync execute<T: DeserializeOwned>(&self) -> Result<T, JssError>\fR
-Executes and deserializes into \fIT\fR.
+.B execute<T: DeserializeOwned>(&self) -> Result<T, JssError>
+Eksekusi dan deserialisasi ke
+.IR T .
 .TP
-\fBasync all<T: DeserializeOwned>(&self) -> Result<Vec<T>, JssError>\fR
-Automatically paginates with a page size of \fB200\fR, collecting all
-records into a \fBVec<T>\fR.
-.SS WorkflowTransition and DocRef
-Types exposed from \fBlibrjss::client::methods::workflow\fR.
-.PP
+.B all<T: DeserializeOwned>(&self) -> Result<Vec<T>, JssError>
+Paginasi otomatis dengan page size
+.BR 200 ,
+mengumpulkan semua record ke
+.BR Vec<T> .
+.SS WorkflowTransition
 .nf
-\fBpub struct WorkflowTransition {\fR
-    \fBpub action: String,\fR
-    \fBpub state: String,\fR
-    \fBpub next_state: Option<String>,\fR
-    \fBpub allowed: Option<String>,\fR
-    \fBpub allow_self_approval: Option<i32>,\fR
-\fB}\fR
 
-\fBpub struct DocRef<'a> {\fR
-    \fBpub doctype: &'a str,\fR
-    \fBpub name: &'a str,\fR
-\fB}\fR
+  pub struct WorkflowTransition {
+      pub action:              String,
+      pub state:               String,
+      pub next_state:          Option<String>,
+      pub allowed:             Option<String>,
+      pub allow_self_approval: Option<i32>,
+  }
+
 .fi
+.SS AuthEndpoints trait
+Diiimplementasikan oleh
+.BR RjssClient .
+Static URL builder, dapat dipakai tanpa instance client.
+.nf
+
+  pub trait AuthEndpoints {
+      fn login_url(base: &Url) -> Result<Url, JssError>;
+      fn logout_url(base: &Url) -> Result<Url, JssError>;
+      fn csrf_token_url(base: &Url) -> Result<Url, JssError>;
+      fn get_logged_user_url(base: &Url) -> Result<Url, JssError>;
+      fn app_page_url(base: &Url) -> Result<Url, JssError>;
+  }
+
+.fi
+Masing-masing menghasilkan URL seperti
+.BR /api/method/login ,
+.BR /api/method/logout ,
+.BR /api/method/frappe.auth.get_csrf_token ,
+.BR /api/method/frappe.auth.get_logged_user ,
+dan
+.BR /app .
+.SH C FFI API (librjss-ffi)
+Crate
+.B librjss-ffi
+memaparkan C ABI stabil. Build menghasilkan:
+.IP \(bu 2
+.BR liblibrjss_ffi.so / .dylib / .dll
+(cdylib)
+.IP \(bu
+.BR liblibrjss_ffi.a
+(staticlib)
+.IP \(bu
+.B librjss-ffi/include/librjss.h
+(di-generate oleh cbindgen)
+.PP
+.B Build:
+.nf
+  cargo build -p librjss-ffi --release
+.fi
+.SS JssClientConfig
+.nf
+
+  typedef struct JssClientConfig {
+      const char *base_url;
+      const char *auth_kind;        /* "session" | "token"    */
+      const char *principal;        /* email     | api_key    */
+      const char *secret;           /* password  | api_secret */
+      const char *expected_sitename;
+      uint32_t    flags;            /* JSS_FLAG_*             */
+      uint32_t    _reserved;
+      uint64_t    timeout_secs;
+      uint32_t    max_retries;
+      uint32_t    _reserved2;
+  } JssClientConfig;
+
+.fi
+Field
+.B _reserved
+dan
+.B _reserved2
+harus di-zero. Inisialisasi struct dengan
+.B memset(&cfg, 0, sizeof(cfg))
+sebelum diisi.
+.SS Flags
+.TP
+.B JSS_FLAG_INSECURE_SSL
+Menerima certificate TLS invalid.
+.TP
+.B JSS_FLAG_NO_READONLY_GUARD
+Menonaktifkan read-only guard.
+.SS Error codes
+.nf
+
+  JSS_OK                         0
+  JSS_ERR_CONFIG                -1
+  JSS_ERR_VALIDATION            -2
+  JSS_ERR_NETWORK               -3
+  JSS_ERR_HTTP                  -4
+  JSS_ERR_API                   -5
+  JSS_ERR_AUTH                  -6
+  JSS_ERR_CSRF                  -7
+  JSS_ERR_PERMISSION            -8
+  JSS_ERR_SITENAME_MISMATCH     -9
+  JSS_ERR_NOT_AUTHENTICATED    -10
+  JSS_ERR_RATE_LIMITED         -11
+  JSS_ERR_PARSE                -12
+  JSS_ERR_EXPIRED              -13
+  JSS_ERR_CANCELLED            -14
+  JSS_ERR_FILE_OPERATION       -15
+  JSS_ERR_INTERNAL             -16
+  JSS_ERR_NULL_POINTER         -17
+  JSS_ERR_UTF8                 -18
+  JSS_ERR_PANIC                -19
+
+.fi
+Setiap fungsi yang mengembalikan
+.B int32_t
+akan mengembalikan
+.B JSS_OK
+(0) pada sukses, atau kode error negatif. Fungsi predikat
+.RB ( is_* ", " can_* )
+mengembalikan
+.B 1
+(true),
+.B 0
+(false), atau kode error negatif.
+.SS Version and error slot
+.TP
+.B const char *jss_version(void)
+Return pointer statis ke string versi. Jangan di-free.
+.TP
+.B const char *jss_last_error(void)
+Return pesan error terakhir untuk thread saat ini, atau
+.B NULL
+jika tidak ada. Thread-local; jangan di-free. Pesan berubah ketika
+fungsi FFI lain dipanggil di thread yang sama.
+.SS Lifecycle
+.TP
+.B JssClient *jss_client_new(const JssClientConfig *cfg)
+Membuat client baru. Return
+.B NULL
+pada gagal; cek
+.BR jss_last_error ().
+.TP
+.B void jss_client_free(JssClient *c)
+Membebaskan client. Aman dipanggil dengan
+.BR NULL .
+.SS Auth lifecycle
+.TP
+.B int32_t jss_client_authenticate(JssClient *c)
+Login dengan auth mode yang dikonfigurasi.
+.TP
+.B int32_t jss_client_logout(JssClient *c)
+Logout. Hanya berguna untuk mode session.
+.TP
+.B int32_t jss_client_ensure_session(JssClient *c)
+Memvalidasi ulang session, login kembali jika expired.
+.TP
+.B int32_t jss_client_is_authenticated(JssClient *c)
+Return
+.B 1
+jika ada session,
+.B 0
+jika tidak.
+.TP
+.B int32_t jss_client_trace_id(JssClient *c, char **out)
+Mengisi
+.B *out
+dengan trace ID. Wajib di-free dengan
+.BR jss_string_free ().
+.SS HTTP verbs
+.TP
+.B int32_t jss_client_get(JssClient *c, const char *path, char **out_body)
+.TP
+.B int32_t jss_client_post(JssClient *c, const char *path, const char *body_json, char **out_body)
+.TP
+.B int32_t jss_client_put(JssClient *c, const char *path, const char *body_json, char **out_body)
+.TP
+.B int32_t jss_client_delete(JssClient *c, const char *path, char **out_body)
+Request HTTP terautentikasi. Setiap
+.B out_body
+yang terisi
+.B JSS_OK
+wajib di-free dengan
+.BR jss_string_free ().
+.TP
+.B int32_t jss_client_post_form(JssClient *c, const char *path, const char *const *keys, const char *const *values, uintptr_t n_pairs, char **out_body)
+Form-encoded POST.
+.B keys
+dan
+.B values
+adalah array string berukuran
+.BR n_pairs .
+.SS Method calls and documents
+.TP
+.B int32_t jss_client_call_method(JssClient *c, const char *method, const char *args_json, char **out_body)
+Memanggil method server dengan args JSON object.
+.B args_json
+boleh
+.B NULL
+atau string kosong untuk tanpa args.
+.TP
+.B int32_t jss_client_get_doc(JssClient *c, const char *doctype, const char *name, char **out_body)
+.TP
+.B int32_t jss_client_create_doc(JssClient *c, const char *doctype, const char *data_json, char **out_body)
+.TP
+.B int32_t jss_client_update_doc(JssClient *c, const char *doctype, const char *name, const char *data_json, char **out_body)
+.TP
+.B int32_t jss_client_delete_doc(JssClient *c, const char *doctype, const char *name, char **out_body)
+CRUD dokumen.
+.B data_json
+harus string JSON object yang valid.
+.SS Files
+.TP
+.B int32_t jss_client_upload_file(JssClient *c, const char *file_name, const uint8_t *content, uintptr_t content_len, const char *doctype, const char *docname, const char *fieldname, char **out_body)
+Upload file multipart.
+.B content
+boleh
+.B NULL
+hanya jika
+.B content_len
+0.
+.TP
+.B int32_t jss_client_download_file(JssClient *c, const char *file_url, uint8_t **out_data, uintptr_t *out_len)
+Download file. Return byte buffer via
+.B out_data
+/
+.BR out_len .
+Wajib di-free dengan
+.BR jss_bytes_free ().
+.TP
+.B int32_t jss_client_download_pdf_kartu_piutang(JssClient *c, const char *doctype, const char *name, const char *format, int32_t no_letterhead, uint8_t **out_data, uintptr_t *out_len)
+Download PDF print format.
+.B no_letterhead
+adalah boolean:
+.B 0
+= false,
+.B non-zero
+= true.
+.SS Reports and search
+.TP
+.B int32_t jss_client_run_report(JssClient *c, const char *report_name, const char *filters_json, char **out_body)
+Menjalankan query report.
+.TP
+.B int32_t jss_client_global_search(JssClient *c, const char *query, uint32_t limit, const char *doctype, char **out_body)
+Global search.
+.B doctype
+boleh
+.B NULL
+untuk search lintas doctype.
+.SS Boot info
+.TP
+.B int32_t jss_client_boot_sitename(JssClient *c, char **out)
+.TP
+.B int32_t jss_client_boot_user_name(JssClient *c, char **out)
+.TP
+.B int32_t jss_client_boot_user_full_name(JssClient *c, char **out)
+.TP
+.B int32_t jss_client_boot_user_roles(JssClient *c, char **out_json)
+Mengisi
+.B out_json
+dengan JSON array string.
+.TP
+.B int32_t jss_client_accessible_doctypes(JssClient *c, char **out_json)
+Mengisi
+.B out_json
+dengan JSON array string.
+.TP
+.B int32_t jss_client_is_developer_mode(JssClient *c)
+.TP
+.B int32_t jss_client_is_read_only(JssClient *c)
+Semua getter boot butuh session aktif. Dalam mode token, beberapa field
+mungkin kosong.
+.SS Permission checks
+.TP
+.B int32_t jss_client_can_read(JssClient *c, const char *doctype)
+.TP
+.B int32_t jss_client_can_write(JssClient *c, const char *doctype)
+.TP
+.B int32_t jss_client_can_create(JssClient *c, const char *doctype)
+.TP
+.B int32_t jss_client_can_submit(JssClient *c, const char *doctype)
+.TP
+.B int32_t jss_client_can_delete(JssClient *c, const char *doctype)
+Return
+.B 1
+/
+.BR 0 /<err> .
+.SS Memory
+.TP
+.B void jss_string_free(char *s)
+Membebaskan string yang dikembalikan oleh fungsi FFI.
+.TP
+.B void jss_bytes_free(uint8_t *p, uintptr_t len)
+Membebaskan byte buffer yang dikembalikan oleh
+.BR jss_client_download_* .
+.PP
+.B Aturan memori:
+.IP \(bu 2
+Setiap
+.B out_body
+yang terisi dengan
+.B JSS_OK
+wajib di-free dengan
+.BR jss_string_free ().
+.IP \(bu
+Setiap
+.B out_data
+yang terisi dengan
+.B JSS_OK
+wajib di-free dengan
+.BR jss_bytes_free ().
+.IP \(bu
+.B jss_last_error()
+dan
+.B jss_version()
+mengembalikan pointer statis/thread-local; jangan di-free.
+.IP \(bu
+.B JssClient*
+dibebaskan dengan
+.BR jss_client_free ().
+.IP \(bu
+Semua
+.B out
+parameter di-set ke
+.B NULL
+/
+.B 0
+terlebih dahulu oleh library jika terjadi error; aman untuk cek nilai
+return sebelum membaca.
 .SH READ-ONLY GUARD
-By default, \fBlibrjss\fR installs a read\-only guard
-(\fBreadonly_guard: true\fR). Any non\-idempotent request
-(\fBPOST\fR, \fBPUT\fR, \fBDELETE\fR) whose path is not in the guard
-whitelist is rejected with \fBJssError::Validation\fR before any network
-I/O is performed.
+Secara default,
+.B librjss
+memasang read-only guard
+.RB ( readonly_guard: true ).
+Setiap request non-idempotent
+.RB ( POST ", " PUT ", " DELETE )
+yang path-nya tidak ada di whitelist akan ditolak dengan
+.B JssError::Validation
+sebelum I/O jaringan terjadi.
 .PP
-Safe HTTP methods (\fBGET\fR, \fBHEAD\fR, \fBOPTIONS\fR) always pass.
+Safe HTTP method
+.RB ( GET ", " HEAD ", " OPTIONS )
+selalu lolos.
 .PP
-Whitelisted POST paths include all read\-style Frappe endpoints, for example:
+Whitelist default (subset):
 .RS 4
 .nf
 /api/method/login
 /api/method/logout
 /api/method/frappe.auth.get_logged_user
+/api/method/frappe.sessions.get_csrf_token
 /api/method/frappe.client.get_count
 /api/method/frappe.client.get_list
 /api/method/frappe.client.get_value
@@ -543,81 +999,62 @@ Whitelisted POST paths include all read\-style Frappe endpoints, for example:
 .fi
 .RE
 .PP
-To disable the guard for a client that must mutate data, set
-\fBreadonly_guard: false\fR in \fBClientConfig\fR, or set the environment
-variable \fBJSS_READONLY_GUARD=false\fR.
+Untuk memperluas, edit
+.B ReadOnlyGuard::new()
+di
+.BR src/client/guard.rs .
+Hanya tambahkan endpoint yang sudah kamu audit sebagai read-only.
+.PP
+Untuk menonaktifkan guard:
+.IP \(bu 2
+Set
+.B readonly_guard: false
+di
+.BR ClientConfig .
+.IP \(bu
+Atau set environment variable
+.BR JSS_READONLY_GUARD=false .
+.PP
+Untuk FFI, gunakan flag
+.BR JSS_FLAG_NO_READONLY_GUARD .
 .SH USAGE EXAMPLES
-.SS 1. Session authentication
+.SS 1. Session authentication (Rust)
 .nf
 use librjss::{RjssClient, ClientConfig, AuthMode};
 use secrecy::SecretString;
 
-let config = ClientConfig {
-    base_url: "https://app.example.com".parse().unwrap(),
+let cfg = ClientConfig {
+    base_url: "https://app.example.com".parse()?,
     auth_mode: AuthMode::Session {
-        email: SecretString::new("user@example.com".into()),
+        email:    SecretString::new("user@example.com".into()),
         password: SecretString::new("secret".into()),
     },
-    expected_sitename: None,
-    required_roles: vec![],
-    timeout_secs: 30,
-    max_retries: 3,
-    user_agent: "myapp/1.0".into(),
-    insecure_ssl: false,
-    readonly_guard: true,
+    expected_sitename: Some("app.example.com".into()),
+    required_roles:    vec!["System Manager".into()],
+    timeout_secs:      30,
+    max_retries:       3,
+    user_agent:        "myapp/1.0".into(),
+    insecure_ssl:      false,
+    readonly_guard:    true,
 };
-let mut client = RjssClient::new(config)?;
+
+let mut client = RjssClient::new(cfg)?;
 client.authenticate().await?;
 println!("Logged in as: {:?}",
     client.session_info().and_then(|s| s.full_name.as_ref()));
 .fi
-.SS 2. Basic GET and POST
+.SS 2. Basic GET/POST
 .nf
 let body = client.authenticated_get("/api/resource/ToDo").await?;
-let resp = client.authenticated_post(
-    "/api/resource/ToDo",
-    r#"{"description":"test"}"#
-).await?;
-.fi
-.SS 3. File upload
-.nf
-let bytes = std::fs::read("photo.png")?;
-let result = client.upload_file(
-    "photo.png", bytes, "Customer", "CUST-001", "image"
-).await?;
-.fi
-.SS 4. File download
-.nf
-let bytes = client.download_file("/files/photo.png").await?;
-std::fs::write("local.png", bytes)?;
-// or directly
-client
-    .download_file_to_path("/files/photo.png", Path::new("local.png"))
-    .await?;
-.fi
-.SS 5. Download a PDF (Kartu Piutang)
-.nf
-let pdf_bytes = client.download_pdf_kartu_piutang(
-    "Master Data Nasabah",
-    "ODR-123",
-    "Form Rincian Sisa Piutang Nasabah",
-    true  // no_letterhead
-).await?;
-std::fs::write("piutang.pdf", pdf_bytes)?;
-.fi
-.SS 6. Running a report
-.nf
-#[derive(Deserialize)]
-struct MyReportRow { /* ... */ }
 
-let rows: Vec<MyReportRow> = client
-    .report("Sales Analytics")
-    .add_filter("from_date", "2026-01-01")
-    .add_filter("to_date", "2026-06-30")
-    .run()
+let resp = client
+    .authenticated_post(
+        "/api/resource/ToDo",
+        r#"{"description":"check logs","status":"Open"}"#,
+    )
     .await?;
 .fi
-.SS 7. Doctype listing with filters
+.SS 3. Doctype listing with filters
 .nf
 let list: serde_json::Value = client
     .doctype("ToDo")
@@ -634,20 +1071,54 @@ let all: Vec<ToDo> = client
     .all()
     .await?;
 .fi
-.SS 8. Single document CRUD
+.SS 4. Single document CRUD
 .nf
 let doc = client.get_doc("Customer", "CUST-001").await?;
 
-#[derive(Serialize)]
-struct NewCustomer {
-    customer_name: String,
-    customer_group: String,
-}
+#[derive(serde::Serialize)]
+struct NewCustomer { customer_name: String, customer_group: String }
+
 let created = client.create_doc("Customer", &new_customer).await?;
-let updated = client.update_doc("Customer", "CUST-001", &modification).await?;
+let updated = client.update_doc("Customer", "CUST-001", &patch).await?;
 let deleted = client.delete_doc("Customer", "OLD-CUST").await?;
 .fi
-.SS 9. Workflow transition
+.SS 5. Report
+.nf
+#[derive(serde::Deserialize)]
+struct Row { name: String, total: f64 }
+
+let rows: Vec<Row> = client
+    .report("Sales Analytics")
+    .add_filter("from_date", "2026-01-01")
+    .add_filter("to_date",   "2026-06-30")
+    .run()
+    .await?;
+.fi
+.SS 6. File upload and download
+.nf
+let bytes = std::fs::read("photo.png")?;
+client.upload_file(
+    "photo.png", bytes, "Customer", "CUST-001", "image",
+).await?;
+
+let bytes = client.download_file("/files/photo.png").await?;
+std::fs::write("local.png", bytes)?;
+
+client
+    .download_file_to_path("/files/photo.png", Path::new("local.png"))
+    .await?;
+.fi
+.SS 7. PDF print format
+.nf
+let pdf_bytes = client.download_pdf_kartu_piutang(
+    "Master Data Nasabah",
+    "ODR-123",
+    "Form Rincian Sisa Piutang Nasabah",
+    true,   // no_letterhead
+).await?;
+std::fs::write("piutang.pdf", pdf_bytes)?;
+.fi
+.SS 8. Workflow transition
 .nf
 let transitions = client
     .workflow_transitions("Surat Diskresi", "SD-0001")
@@ -656,143 +1127,272 @@ for t in &transitions {
     println!("{} -> {:?}", t.action, t.next_state);
 }
 
-// Apply a specific target state
 client
     .transition_to_state("Surat Diskresi", "SD-0001", "Approved")
     .await?;
 .fi
-.SS 10. Calling a server method
-.nf
-use std::collections::HashMap;
-
-let mut args = HashMap::new();
-args.insert("doctype".into(), "Sales Invoice".into());
-args.insert("docname".into(), "SINV-0001".into());
-let result = client
-    .call_method("frappe.client.get_value", Some(args))
-    .await?;
-.fi
-.SS 11. Error handling
+.SS 9. Error handling
 .nf
 match client.authenticated_get("/api/resource/ToDo").await {
-    Err(JssError::ApiError { exc_type, message, status }) => {
-        eprintln!("[{exc_type}] {message} (HTTP {status})");
-    }
+    Ok(data) => { /* process */ }
+
+    Err(JssError::ApiError { exc_type, message, status }) =>
+        eprintln!("[{exc_type}] {message} (HTTP {status})"),
+
     Err(JssError::RateLimited { retry_after }) => {
         let secs = retry_after.unwrap_or(5);
         tokio::time::sleep(Duration::from_secs(secs)).await;
-        // retry
     }
-    Err(JssError::Validation(msg)) if msg.contains("READ-ONLY GUARD") => {
-        eprintln!("Blocked by read-only guard: {msg}");
-    }
-    Err(e) => {
-        eprintln!("Other error: {}", e);
-        let _ = e.status_code();
-    }
-    Ok(data) => { /* process data */ }
+
+    Err(JssError::Validation(msg)) if msg.contains("READ-ONLY GUARD") =>
+        eprintln!("Blocked by guard: {msg}"),
+
+    Err(e) => eprintln!("Other error: {e} (status {})", e.status_code()),
 }
 .fi
-.SS 12. Accessing boot data
+.SS 10. Boot data
 .nf
 if let Some(boot) = client.boot() {
-    println!("Site: {}", boot.sitename);
+    println!("Site:  {}", boot.sitename);
+    println!("User:  {} <{}>", boot.user.full_name, boot.user.email);
     println!("Roles: {:?}", boot.user.roles);
+
     for (doctype, perms) in &boot.user.permissions {
-        println!("{} can: {:?}", doctype, perms);
+        println!("{doctype} can: {perms:?}");
     }
+
     if client.is_developer_mode() {
         println!("Developer mode active");
     }
-    println!("Accessible doctypes: {:?}",
-        client.accessible_doctypes());
+    println!("Accessible: {:?}", client.accessible_doctypes());
 }
 .fi
-.SH CONFIGURATION (ENVIRONMENT VARIABLES)
-The following variables are consumed by \fBClientConfig::from_env()\fR and
-can be adopted in your own applications. They are also used by the bundled
-\fBverify_readonly\fR binary.
-.TP
-\fBJSS_BASE_URL\fR or \fBJSS_URL\fR
-Required. Base URL of the JSS instance. Trailing slash is stripped.
-.TP
-\fBJSS_TOKEN_KEY\fR
-API key for token authentication. If set, \fBJSS_TOKEN_SECRET\fR must also
-be set. Takes precedence over email/password.
-.TP
-\fBJSS_TOKEN_SECRET\fR
-API secret for token authentication.
-.TP
-\fBJSS_EMAIL\fR or \fBJSS_USR\fR
-Email for session authentication. Required when \fBJSS_TOKEN_KEY\fR is not
-set.
-.TP
-\fBJSS_PASSWORD\fR or \fBJSS_PWD\fR
-Password for session authentication.
-.TP
-\fBJSS_EXPECTED_SITENAME\fR
-Optional. Login fails with \fBSitenameMismatch\fR if the boot sitename does
-not match.
-.TP
-\fBJSS_REQUIRED_ROLES\fR
-Optional. Comma\-separated required roles; login fails if the user does not
-hold at least one.
-.TP
-\fBJSS_TIMEOUT_SECS\fR
-Request timeout in seconds. Default \fB30\fR.
-.TP
-\fBJSS_MAX_RETRIES\fR
-Maximum retry attempts. Default \fB3\fR.
-.TP
-\fBJSS_USER_AGENT\fR
-Custom User\-Agent header. Default \fBlibrjss/2.3.0\fR.
-.TP
-\fBJSS_INSECURE_SSL\fR
-Set to \fBtrue\fR, \fB1\fR, or \fByes\fR to accept invalid TLS certificates
-(e.g. self\-signed). Also relaxes the HTTPS\-only check in
-\fBClientConfig::validate\fR.
-.TP
-\fBJSS_READONLY_GUARD\fR
-Set to \fBfalse\fR, \fB0\fR, or \fBno\fR to disable the read\-only guard.
-Default is enabled.
-.SH VERIFY_READONLY BINARY
-The crate ships a small binary \fBverify_readonly\fR that snapshots doctype
-counts before and after running an operation, then reports any delta.
-.PP
-Usage:
+.SS 11. C FFI \(em full example
 .nf
-\fBverify_readonly snapshot <file.json>\fR
-\fBverify_readonly compare <before.json> <after.json>\fR
+#include "librjss.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+int main(void) {
+    printf("version: %s\\n", jss_version());
+
+    JssClientConfig cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.base_url     = getenv("JSS_BASE_URL");
+    cfg.auth_kind    = "session";
+    cfg.principal    = getenv("JSS_EMAIL");
+    cfg.secret       = getenv("JSS_PASSWORD");
+    cfg.flags        = JSS_FLAG_INSECURE_SSL;
+    cfg.timeout_secs = 30;
+    cfg.max_retries  = 3;
+
+    JssClient *c = jss_client_new(&cfg);
+    if (!c) {
+        fprintf(stderr, "create: %s\\n", jss_last_error());
+        return 1;
+    }
+
+    if (jss_client_authenticate(c) != JSS_OK) {
+        fprintf(stderr, "auth:   %s\\n", jss_last_error());
+        jss_client_free(c);
+        return 1;
+    }
+
+    char *sitename = NULL;
+    if (jss_client_boot_sitename(c, &sitename) == JSS_OK) {
+        printf("sitename: %s\\n", sitename);
+        jss_string_free(sitename);
+    }
+
+    char *body = NULL;
+    if (jss_client_get(c, "/api/resource/ToDo?limit_page_length=5",
+                       &body) == JSS_OK) {
+        puts(body);
+        jss_string_free(body);
+    }
+
+    jss_client_logout(c);
+    jss_client_free(c);
+    return 0;
+}
+.fi
+.SS 12. C FFI \(em token auth + flag
+.nf
+memset(&cfg, 0, sizeof(cfg));
+cfg.base_url     = "https://erp.example.com";
+cfg.auth_kind    = "token";
+cfg.principal    = "abcd1234";          /* api_key    */
+cfg.secret       = "efgh5678";          /* api_secret */
+cfg.flags        = JSS_FLAG_NO_READONLY_GUARD;
+.fi
+.SH THREAD SAFETY
+.B RjssClient
+di Rust adalah
+.BR Send " + " Sync ,
+sehingga aman untuk dipakai di banyak task Tokio secara bersamaan.
+.PP
+Di C FFI:
+.IP \(bu 2
+.B JssClient*
+sendiri tidak dilindungi oleh mutex. Kalau kamu mau pakai dari banyak
+thread, lindungi dengan mutex sendiri.
+.IP \(bu
+.B jss_last_error()
+adalah thread-local, jadi setiap thread punya slot error sendiri.
+.IP \(bu
+Setiap panggilan FFI menangkap panic Rust dan mengembalikan
+.BR JSS_ERR_PANIC .
+.IP \(bu
+Runtime Tokio dibangun sekali secara lazy dengan
+.BR OnceLock ,
+sehingga panggilan FFI dari thread apapun aman.
+.SH ENVIRONMENT VARIABLES
+Dipakai oleh
+.B ClientConfig::from_env()
+dan binary
+.BR verify_readonly .
+.TP
+.B JSS_BASE_URL
+atau
+.B JSS_URL
+Required. Base URL instance JSS. Trailing slash di-strip.
+.TP
+.B JSS_TOKEN_KEY
+API key untuk token authentication. Jika di-set,
+.B JSS_TOKEN_SECRET
+harus ada. Mengalahkan email/password.
+.TP
+.B JSS_TOKEN_SECRET
+API secret untuk token authentication.
+.TP
+.B JSS_EMAIL
+atau
+.B JSS_USR
+Email untuk session authentication. Required ketika
+.B JSS_TOKEN_KEY
+tidak di-set.
+.TP
+.B JSS_PASSWORD
+atau
+.B JSS_PWD
+Password untuk session authentication.
+.TP
+.B JSS_EXPECTED_SITENAME
+Optional. Login gagal dengan
+.B SitenameMismatch
+jika boot sitename tidak cocok.
+.TP
+.B JSS_REQUIRED_ROLES
+Optional. Comma-separated role yang wajib dimiliki; login gagal jika user
+tidak memiliki minimal satu.
+.TP
+.B JSS_TIMEOUT_SECS
+Timeout request dalam detik. Default
+.BR 30 .
+.TP
+.B JSS_MAX_RETRIES
+Jumlah retry maksimum. Default
+.BR 3 .
+.TP
+.B JSS_USER_AGENT
+Header User-Agent kustom. Default
+.BR librjss/2.3.0 .
+.TP
+.B JSS_INSECURE_SSL
+Set ke
+.BR true ", " 1 ", atau " yes
+untuk menerima certificate TLS invalid. Juga melonggarkan check
+HTTPS-only di
+.BR ClientConfig::validate .
+.TP
+.B JSS_READONLY_GUARD
+Set ke
+.BR false ", " 0 ", atau " no
+untuk menonaktifkan read-only guard. Default aktif.
+.SH BUILD AND INSTALL
+.SS Rust library
+.nf
+  cargo build --release
+  cargo test  --workspace --all-targets --all-features
+.fi
+.SS C FFI
+.nf
+  cargo build -p librjss-ffi --release
+
+  # header: librjss-ffi/include/librjss.h
+  # static: target/release/liblibrjss_ffi.a
+  # shared: target/release/liblibrjss_ffi.so
+.fi
+Contoh compile C:
+.nf
+  cc app.c -I librjss-ffi/include \\
+     target/release/liblibrjss_ffi.a \\
+     -lpthread -ldl -lm -o app
+.fi
+.SS Man page
+.nf
+  sudo cp librjss.3 /usr/local/share/man/man3/
+  sudo mandb
+  man 3 librjss
+.fi
+Preview tanpa install:
+.nf
+  man -l librjss.3
+.fi
+.SH VERIFY_READONLY BINARY
+Crate menyertakan binary kecil
+.B verify_readonly
+yang mengambil snapshot jumlah dokumen per doctype sebelum dan sesudah
+operasi, lalu melaporkan delta.
+.PP
+Penggunaan:
+.nf
+  verify_readonly snapshot <file.json>
+  verify_readonly compare  <before.json> <after.json>
 .fi
 .PP
-The list of doctypes to check is compiled in. Exit codes:
-.RS 4
-.IP \[bu] 2
-\fB0\fR \- no change detected (server clean).
-.IP \[bu]
-\fB1\fR \- usage error or I/O error.
-.IP \[bu]
-\fB2\fR \- change detected on at least one doctype.
-.RE
+Daftar doctype yang dicek di-compile. Exit code:
+.IP \(bu 2
+.B 0
+\(em tidak ada perubahan (server bersih).
+.IP \(bu
+.B 1
+\(em usage error atau I/O error.
+.IP \(bu
+.B 2
+\(em ada perubahan pada minimal satu doctype.
 .SH TESTING
-Unit tests (no server required):
+Unit test (tanpa server):
+.nf
+  cargo test --lib
+.fi
 .PP
-\fBcargo test --lib\fR
-.PP
-Integration tests use \fBwiremock\fR and run without a live server.
-The test file \fBtests/fixtures/real_app_page.html\fR is used by
-\fBapp_parser\fR to verify parsing of a real \fBfrappe.boot\fR payload.
+Integration test memakai
+.B wiremock
+tanpa server sungguhan. File
+.B tests/fixtures/real_app_page.html
+dipakai oleh
+.B app_parser
+untuk memverifikasi parsing payload
+.B frappe.boot
+yang nyata.
 .PP
 Full suite:
-.PP
-\fBcargo test --workspace --all-targets --all-features\fR
+.nf
+  cargo test --workspace --all-targets --all-features
+.fi
 .SH SEE ALSO
 .BR cargo (1),
 .BR reqwest (7),
 .BR serde (7)
 .PP
-The full source code and examples are available at
+Source code dan contoh:
 .UR https://github.com/mroczect/librjss
-.UE .
+.UE
 .SH AUTHOR
 mroczect <mroczect@proton.me>
+.SH BUGS
+Laporkan bug di
+.UR https://github.com/mroczect/librjss/issues
+.UE .
