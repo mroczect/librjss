@@ -18,7 +18,7 @@ async fn setup_client(server: &MockServer) -> RjssClient {
         auth_mode: session_auth("user", "pass"),
         expected_sitename: None,
         required_roles: vec![],
-        timeout_secs: 1, // <-- lebih pendek supaya cepat gagal kalau salah
+        timeout_secs: 1,
         max_retries: 1,
         user_agent: "test".into(),
         insecure_ssl: true,
@@ -66,7 +66,6 @@ async fn test_upload_file() {
     let server = MockServer::start().await;
     mock_login_and_app(&server).await;
 
-    // Mock untuk endpoint upload – cukup cocokkan method POST dan path
     Mock::given(method("POST"))
         .and(path("/api/method/upload_file"))
         .respond_with(
@@ -78,7 +77,6 @@ async fn test_upload_file() {
     let mut client = setup_client(&server).await;
     client.authenticate().await.unwrap();
 
-    // Hapus panggilan authenticated_get yang tidak perlu – itu yang bikin lambat
     let result = client
         .upload_file("test.png", vec![1, 2, 3], "ToDo", "doc123", "image")
         .await

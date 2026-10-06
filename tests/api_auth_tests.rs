@@ -1,4 +1,3 @@
-// tests/api_auth_tests.rs
 use librjss::api::auth::AuthEndpoints;
 use reqwest::Url;
 
