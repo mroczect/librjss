@@ -22,6 +22,7 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
     let document = Html::parse_document(html);
     let selector = Selector::parse("script")
         .map_err(|_| JssError::Parse("Failed to parse CSS selector".into()))?;
+
     let mut csrf_token = String::new();
     for script in document.select(&selector) {
         let text = script.inner_html();
@@ -40,7 +41,7 @@ pub(crate) fn extract_app_data(html: &str) -> Result<(SecretString, FrappeBoot),
         "Could not find frappe.boot object in /app".into(),
     ))?;
 
-    let boot: FrappeBoot = serde_json::from_str(&boot_obj)
+    let boot: FrappeBoot = json5::from_str(&boot_obj)
         .map_err(|e| JssError::Parse(format!("Failed to parse frappe.boot: {e}")))?;
 
     Ok((SecretString::new(Box::from(csrf_token)), boot))
@@ -52,36 +53,38 @@ fn extract_json_object(text: &str, key: &str) -> Option<String> {
     let after = &text[pos + start_marker.len()..];
     let first_brace = after.find('{')?;
     let slice = &after[first_brace..];
-    let mut count = 0;
-    let mut in_string = false;
+
+    let chars: Vec<char> = slice.chars().collect();
+    let mut count: i32 = 0;
+    let mut string_delim: Option<char> = None;
     let mut escape = false;
     let mut end_idx = None;
-    let chars: Vec<char> = slice.chars().collect();
+
     for (i, &ch) in chars.iter().enumerate() {
         if escape {
             escape = false;
             continue;
         }
-        if in_string {
+
+        if let Some(delim) = string_delim {
             if ch == '\\' {
                 escape = true;
-            } else if ch == '"' {
-                in_string = false;
+            } else if ch == delim {
+                string_delim = None;
             }
-        } else {
-            if ch == '"' {
-                in_string = true;
-            } else if ch == '{' {
-                count += 1;
-            } else if ch == '}' {
-                count -= 1;
-                if count == 0 {
-                    end_idx = Some(i + 1);
-                    break;
-                }
+        } else if ch == '"' || ch == '\'' {
+            string_delim = Some(ch);
+        } else if ch == '{' {
+            count += 1;
+        } else if ch == '}' {
+            count -= 1;
+            if count == 0 {
+                end_idx = Some(i + 1);
+                break;
             }
         }
     }
+
     end_idx.map(|idx| chars[..idx].iter().collect::<String>())
 }
 
@@ -138,6 +141,50 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_boot_with_unquoted_keys() {
+        let js = r#"{
+            sitename: "test",
+            user: { name: "dev", full_name: "Dev User", roles: ["Admin"] },
+            versions: { frappe: "15.0.0" },
+            developer_mode: 0,
+            read_only: false
+        }"#;
+        let html = make_html("tok", js);
+        let (_, boot) = extract_app_data(&html).expect("JS object syntax");
+        assert_eq!(boot.sitename, "test");
+        assert_eq!(boot.user.name, "dev");
+        assert_eq!(boot.user.roles, vec!["Admin"]);
+    }
+
+    #[test]
+    fn test_extract_boot_with_single_quotes_and_trailing_comma() {
+        let js = r#"{
+            sitename: 'test',
+            user: { name: 'dev', roles: ['Admin'], },
+            versions: {},
+            developer_mode: 0,
+            read_only: false,
+        }"#;
+        let html = make_html("tok", js);
+        let (_, boot) = extract_app_data(&html).expect("json5 features");
+        assert_eq!(boot.sitename, "test");
+        assert_eq!(boot.user.name, "dev");
+    }
+
+    #[test]
+    fn test_extract_boot_with_braces_inside_single_quoted_string() {
+        let js = r#"{
+            sitename: 'test',
+            template: '{"a": {"b": "c"}}',
+            user: { name: 'dev' }
+        }"#;
+        let html = make_html("tok", js);
+        let (_, boot) = extract_app_data(&html).expect("single-quoted braces");
+        assert_eq!(boot.sitename, "test");
+        assert_eq!(boot.user.name, "dev");
+    }
+
+    #[test]
     fn test_extract_boot_from_real_html() {
         let html = include_str!("../../../tests/fixtures/real_app_page.html");
         let (csrf, boot) = extract_app_data(html).expect("Failed to parse real HTML");
@@ -169,7 +216,7 @@ mod tests {
     fn test_extract_invalid_boot_json() {
         let html = r#"<html><script>frappe.csrf_token = "token";</script>
         <script>
-        frappe.boot = {invalid};
+        frappe.boot = { = = = };
         </script></html>"#;
         let result = extract_app_data(html);
         assert!(result.is_err());
