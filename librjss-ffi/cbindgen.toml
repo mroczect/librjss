@@ -1,0 +1,17 @@
+language = "C"
+include_guard = "LIBRJSS_FFI_H"
+documentation = true
+cpp_compat = true
+tab_width = 4
+
+[export]
+prefix = ""
+include = []
+item_types = ["constants", "enums", "functions", "structs", "unions", "typedefs"]
+
+[fn]
+args = "auto"
+rename_args = "none"
+
+[struct]
+rename_fields = "none"
