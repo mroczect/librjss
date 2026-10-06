@@ -27,32 +27,76 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
-      - name: Install groff
+      - name: Install mandoc
         run: |
           sudo apt-get update
-          sudo apt-get install -y groff
+          sudo apt-get install -y mandoc
 
-      - name: Find man page file
+      - name: Locate man page
         id: manpage
         run: |
-          MANFILE=$(ls docs/librjss.3 | head -1)
-          if [ -z "$MANFILE" ]; then
-            echo "Error: No man page found in manual/"
+          if [ ! -f docs/librjss.3 ]; then
+            echo "::error::docs/librjss.3 not found"
             exit 1
           fi
-          echo "path=$MANFILE" >> $GITHUB_OUTPUT
-          echo "file=$(basename $MANFILE)" >> $GITHUB_OUTPUT
+          echo "path=docs/librjss.3" >> "$GITHUB_OUTPUT"
 
-      - name: Convert man page to HTML
+      - name: Render man page to HTML
         run: |
           mkdir -p public
-          groff -mandoc -Thtml ${{ steps.manpage.outputs.path }} > public/index.html
-          echo '<style>body{font-family:monospace; max-width:80ch; margin:2em auto; padding:0 1em;}</style>' >> public/index.html
+
+          cat > public/style.css <<'CSS'
+          :root { color-scheme: light dark; }
+          html { background: #fafafa; }
+          body {
+            max-width: 90ch;
+            margin: 2rem auto;
+            padding: 0 1.5rem;
+            font-family: ui-monospace, "JetBrains Mono", "Iosevka", Menlo,
+                         "DejaVu Sans Mono", monospace;
+            font-size: 15px;
+            line-height: 1.55;
+            color: #111;
+          }
+          h1 { font-size: 1.4rem; margin-top: 2em;
+               border-bottom: 1px solid #ccc; padding-bottom: .3em; }
+          h2 { font-size: 1.1rem; margin-top: 1.8em; color: #333; }
+          dl { margin: .4em 0 1em 0; }
+          dt { font-weight: 700; margin-top: .7em; }
+          dd { margin: .2em 0 .2em 2ch; }
+          pre {
+            background: #f0f0f0; padding: .8em 1em; overflow-x: auto;
+            border-radius: 4px; border: 1px solid #e0e0e0; font-size: 14px;
+          }
+          code, kbd { background: #ececec; padding: .1em .35em;
+                      border-radius: 3px; font-size: 95%; }
+          a { color: #0645ad; }
+          a:visited { color: #0b0080; }
+          table { border-collapse: collapse; }
+          td, th { padding: .15em .8em .15em 0; vertical-align: top; }
+
+          @media (prefers-color-scheme: dark) {
+            html { background: #16181c; }
+            body { color: #dcdcdc; }
+            h2   { color: #b8b8b8; }
+            h1   { border-bottom-color: #333; }
+            pre  { background: #1e2126; border-color: #2a2e35; }
+            code, kbd { background: #262a30; }
+            a    { color: #6ab0ff; }
+            a:visited { color: #b28cff; }
+          }
+          CSS
+
+          mandoc -Thtml \
+            -Ostyle=style.css \
+            -Oman=%N.%S.html \
+            "${{ steps.manpage.outputs.path }}" \
+            > public/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: "./public"
+          path: ./public
 
       - name: Deploy to GitHub Pages
         id: deployment

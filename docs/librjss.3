@@ -1,6 +1,10 @@
-.TH LIBRJSS 3 "July 2026" "librjss 2.2.1" "Library Functions Manual"
+.\" librjss.3 - manual page for librjss 2.3.0
+.\" Install: cp librjss.3 /usr/local/share/man/man3/
+.\"          mandb   (opsional)
+.\"
+.TH LIBRJSS 3 "October 2026" "librjss 2.3.0" "Library Functions Manual"
 .SH NAME
-librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs.
+librjss \- async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNext APIs.
 .SH SYNOPSIS
 .SS Cargo dependency
 .nf
@@ -12,67 +16,81 @@ librjss \- Robust async Rust client for Juragan Subsystem (JSS) / Frappe / ERPNe
 \fBuse librjss::{\fR
     \fBRjssClient, ClientConfig, AuthMode, JssError,\fR
     \fBSessionInfo, FrappeBoot, BootUser, BootUserInfo,\fR
-    \fBSidebarPages, NavbarSettings, FrequentLink,\fR
-    \fBUserInfo, ReportMeta, AppData,\fR
+    \fBSidebarPages, SidebarPage, NavbarSettings, NavbarItem,\fR
+    \fBFrequentLink, PageInfo, ReportMeta, AppData,\fR
+    \fBSysDefaults, UserInfo,\fR
 \fB};\fR
 .fi
 .SH DESCRIPTION
-\fBlibrjss\fR provides full access to a JSS (Frappe/ERPNext) server.
-It supports:
+\fBlibrjss\fR is a lightweight asynchronous client that provides full access to a
+JSS (Frappe / ERPNext) server. It supports:
 .IP \[bu] 2
-Cookie‑based session authentication and token‑based API key/secret authentication.
+Cookie\-based session authentication and API\-key/secret token authentication.
 .IP \[bu]
-Automatic CSRF token extraction from the \fB/app\fR dashboard.
+Automatic CSRF token and \fBfrappe.boot\fR extraction from the \fB/app\fR
+dashboard, parsed through a JavaScript\-compatible reader (JSON5).
 .IP \[bu]
 Configurable retry with exponential backoff.
 .IP \[bu]
-Typed builders for report execution, doctype CRUD, and file upload/download.
+Typed builders for reports and doctype CRUD, plus a full file upload/download API.
+.IP \[bu]
+A read\-only guard that refuses mutating requests unless the path is whitelisted.
 .IP \[bu]
 A rich error model mirroring Frappe JSON error responses.
 .IP \[bu]
-Zero‑framework – lightweight dependencies on \fBreqwest\fR, \fBserde\fR,
-\fBsecrecy\fR, and a few other small crates.
-.IP \[bu]
 Unique trace ID per client for distributed tracing.
 .PP
-This manual documents every public module, struct, enum, trait, and method.
+This manual documents every public module, struct, enum, trait, and method
+available in librjss 2.3.0.
 .SH CORE CONCEPTS
 .SS RjssClient
-Central struct holding configuration, HTTP client, session, credentials, and boot data.
+Central struct holding configuration, HTTP client, session, credentials, boot
+data, and the read\-only guard.
 .PP
 \fBConstructor:\fR
 .RS 4
 \fBRjssClient::new(config: ClientConfig) -> Result<Self, JssError>\fR
 .br
-Validates configuration, builds a reqwest client with a cookie jar, timeout, and user‑agent.
+Validates configuration, builds a reqwest client with a cookie jar, timeout,
+and user\-agent, and installs the read\-only guard when enabled.
 .RE
 .PP
-\fBAuthentication & session methods:\fR
+\fBAuthentication and session:\fR
 .TP
 \fBauthenticate(&mut self) -> Result<(), JssError>\fR
-Logs in using session or token (depending on \fBAuthMode\fR). In session mode it stores credentials and calls login. Token mode directly constructs a synthetic \fBSessionInfo\fR.
+Logs in using session or token (depending on \fBAuthMode\fR). In session mode
+it stores the credentials and calls login, which also fetches \fB/app\fR to
+extract the CSRF token and \fBfrappe.boot\fR. In token mode it constructs a
+synthetic \fBSessionInfo\fR and stores it.
 .TP
 \fBlogout(&mut self) -> Result<(), JssError>\fR
-Only meaningful for \fBAuthMode::Session\fR. Sends a logout request with the CSRF token, then clears session and credentials.
+Only meaningful for \fBAuthMode::Session\fR. Sends a logout request with the
+CSRF token, then clears both session and credentials.
 .TP
 \fBensure_session(&mut self) -> Result<(), JssError>\fR
-Checks whether the current session is still valid by calling \fBget_logged_user\fR. If a 401 is returned the session is discarded and, if credentials are available, a fresh login is performed automatically.
+Verifies the current session by calling \fBget_logged_user\fR. On 401, the
+session is discarded and, if credentials are available, a fresh login is
+performed automatically. Up to 3 attempts.
 .PP
 \fBAccessors:\fR
 .TP
 \fBsession_info(&self) -> Option<&SessionInfo>\fR
-Returns a reference to the current session data.
+Current session data, if any.
 .TP
 \fBboot(&self) -> Option<&FrappeBoot>\fR
-Returns the boot data extracted from the /app page after login. Contains user info, permissions, sidebar, etc.
+The boot data extracted from \fB/app\fR after login. Contains user info,
+permissions, sidebar, versions, and more.
 .TP
 \fBbase_url(&self) -> &Url\fR
-The base server URL in use.
+The base server URL.
 .TP
 \fBtrace_id(&self) -> &str\fR
-Unique UUID v4 identifier for tracing/logging.
+UUID v4 for tracing/logging.
+.TP
+\fBis_readonly_guard_on(&self) -> bool\fR
+Whether the read\-only guard is active.
 .PP
-\fBAuthenticated HTTP requests:\fR
+\fBAuthenticated HTTP:\fR
 .TP
 \fBauthenticated_get(&self, path: &str) -> Result<String, JssError>\fR
 .TP
@@ -81,101 +99,131 @@ Unique UUID v4 identifier for tracing/logging.
 \fBauthenticated_put(&self, path: &str, body_json: &str) -> Result<String, JssError>\fR
 .TP
 \fBauthenticated_delete(&self, path: &str) -> Result<String, JssError>\fR
-Each sends the corresponding HTTP request to the path joined with base_url. They attach the appropriate authorization header (token or CSRF) and handle retry with exponential backoff.
+Send the corresponding HTTP request to the path joined with base_url. They
+attach the appropriate authorization header (token or CSRF) and handle retry
+with exponential backoff. Mutating methods (POST, PUT, DELETE) pass through
+the read\-only guard first.
 .TP
 \fBpost_form(&self, path: &str, form: &[(&str, &str)]) -> Result<String, JssError>\fR
-Sends a POST request with \fBapplication/x-www-form-urlencoded\fR body. Useful for APIs like global search, link search, and workflow transitions.
+Sends \fBapplication/x\-www\-form\-urlencoded\fR. Useful for APIs such as global
+search, link search, and workflow transitions.
+.PP
+\fBPermission helpers (from boot data):\fR
+.TP
+\fBcan_read(&self, doctype: &str) -> bool\fR
+.TP
+\fBcan_write(&self, doctype: &str) -> bool\fR
+.TP
+\fBcan_create(&self, doctype: &str) -> bool\fR
+.TP
+\fBcan_submit(&self, doctype: &str) -> bool\fR
+.TP
+\fBcan_delete(&self, doctype: &str) -> bool\fR
+.TP
+\fBaccessible_doctypes(&self) -> Vec<String>\fR
+Union of read, write, and create permissions, sorted.
 .PP
 \fBFile operations:\fR
 .TP
 \fBupload_file(&self, file_name: &str, file_content: Vec<u8>, doctype: &str, docname: &str, fieldname: &str) -> Result<String, JssError>\fR
-Uploads a file to \fB/api/method/upload_file\fR using multipart/form‑data. Returns the raw JSON response.
+Uploads via multipart/form\-data to \fB/api/method/upload_file\fR. The
+file name must not contain \fB/\fR, \fB\\\\\fR, or \fB..\fR.
 .TP
 \fBdownload_file(&self, file_url: &str) -> Result<Vec<u8>, JssError>\fR
-Downloads a file from a relative URL (e.g., "/files/photo.png"). Returns raw bytes.
+Downloads a file from a relative URL (e.g.\fB"/files/photo.png"\fR). Returns
+raw bytes. Absolute URLs and path traversal are rejected.
 .TP
 \fBdownload_file_to_path(&self, file_url: &str, save_path: &Path) -> Result<(), JssError>\fR
 Same as above, but writes directly to disk.
 .TP
 \fBdownload_pdf_kartu_piutang(&self, doctype: &str, name: &str, format: &str, no_letterhead: bool) -> Result<Vec<u8>, JssError>\fR
-Downloads a PDF of a specific print format (JSS-specific) using \fB/api/method/frappe.utils.print_format.download_pdf\fR with query parameters. Returns the raw PDF bytes.
+Downloads a PDF for a specific print format via
+\fB/api/method/frappe.utils.print_format.download_pdf\fR. Returns the raw
+PDF bytes. Attaches CSRF and any token authorization.
 .PP
-\fBReport builder:\fR
+\fBReports and resources:\fR
 .TP
 \fBreport(&self, name: &str) -> ReportBuilder\fR
-Returns a builder for running a named Frappe report.
-.PP
-\fBDoctype / resource builder:\fR
+Returns a builder for running a named Frappe query report.
 .TP
 \fBdoctype(&self, name: &str) -> ResourceBuilder\fR
-Builder for fetching document lists.
+Returns a builder for fetching document lists.
 .TP
 \fBget_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>\fR
 Fetches a single document by name.
 .TP
+\fBget_doc_json(&self, doctype: &str, name: &str) -> Result<serde_json::Value, JssError>\fR
+Shortcut returning a \fBserde_json::Value\fR.
+.TP
 \fBcreate_doc(&self, doctype: &str, data: &impl Serialize) -> Result<String, JssError>\fR
-Creates a new document. \fIdata\fR must implement \fBSerialize\fR.
 .TP
 \fBupdate_doc(&self, doctype: &str, name: &str, data: &impl Serialize) -> Result<String, JssError>\fR
-Updates an existing document.
 .TP
 \fBdelete_doc(&self, doctype: &str, name: &str) -> Result<String, JssError>\fR
-Deletes a document.
-.TP
-\fBcall_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>\fR
-Calls a whitelisted server method (e.g., \fBfrappe.email.send\fR) with optional arguments. The body is sent as a JSON POST.
-.PP
-\fBFrappe‑specific convenience methods:\fR
-.TP
-\fBglobal_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>\fR
-Performs a global search like the Frappe navbar. Uses \fBfrappe.utils.global_search.search\fR.
-.TP
-\fBsearch_link(&self, txt: &str, doctype: &str, reference_doctype: &str, page_length: u32) -> Result<String, JssError>\fR
-Autocomplete for link fields. Calls \fBfrappe.desk.search.search_link\fR.
-.TP
-\fBget_transitions(&self, doc_json: &str) -> Result<String, JssError>\fR
-Gets workflow transitions for a document. Calls \fBfrappe.model.workflow.get_transitions\fR.
-.TP
-\fBsave_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>\fR
-Saves user‑specific settings for a doctype. Calls \fBfrappe.model.utils.user_settings.save\fR.
-.TP
-\fBget_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssError>\fR
-Gets record count. Calls \fBfrappe.desk.reportview.get_count\fR.
-.TP
-\fBget_list(&self, doctype: &str, fields_json: &str, filters_json: &str, or_filters_json: &str, order_by: &str, start: u32, page_length: u32, view: &str, group_by: &str, with_comment_count: bool) -> Result<String, JssError>\fR
-Gets a list of documents with complex filters. Calls \fBfrappe.desk.reportview.get_list\fR.
-.TP
-\fBget_list_settings(&self, doctype: &str) -> Result<String, JssError>\fR
-Gets list view settings for a doctype. Calls \fBfrappe.desk.listview.get_list_settings\fR.
-.TP
-\fBget_doctype_meta(&self, doctype: &str) -> Result<String, JssError>\fR
-Loads doctype metadata. Calls \fBfrappe.desk.form.load.getdoctype\fR.
-.TP
-\fBfile_list(&self, folder: &str, limit: u32, extra_filters: Option<Vec<(&str, &str, &str, &str)>>) -> Result<String, JssError>\fR
-Lists files in a folder with optional extra filters. Uses the resource API.
-.TP
-\fBget_doc_json(&self, doctype: &str, name: &str) -> Result<serde_json::Value, JssError>\fR
-Shortcut to get a single document as \fBserde_json::Value\fR.
-.TP
-\fBdoctype_list_json(&self, doctype: &str, fields: Option<Vec<&str>>, filters: Vec<(&str, &str, &str)>, limit: u32, start: u32, order_by: Option<&str>) -> Result<serde_json::Value, JssError>\fR
-Shortcut to list documents as \fBserde_json::Value\fR.
 .TP
 \fBrun_report(&self, report_name: &str, filters: serde_json::Value) -> Result<String, JssError>\fR
-Runs a query report. Calls \fBfrappe.desk.query_report.run\fR.
+Runs a query report via \fBfrappe.desk.query_report.run\fR.
+.TP
+\fBcall_method(&self, method: &str, args: Option<HashMap<String, String>>) -> Result<String, JssError>\fR
+Calls a whitelisted server method with JSON POST body.
+.PP
+\fBFrappe\-specific convenience:\fR
+.TP
+\fBglobal_search(&self, query: &str, limit: u32, doctype: Option<&str>) -> Result<String, JssError>\fR
+Calls \fBfrappe.utils.global_search.search\fR.
+.TP
+\fBsearch_link(&self, txt: &str, doctype: &str, reference_doctype: &str, page_length: u32) -> Result<String, JssError>\fR
+Autocomplete for link fields: \fBfrappe.desk.search.search_link\fR.
+.TP
+\fBget_transitions(&self, doc_json: &str) -> Result<String, JssError>\fR
+Raw workflow transitions: \fBfrappe.model.workflow.get_transitions\fR.
+.TP
+\fBsave_user_settings(&self, doctype: &str, user_settings: &str) -> Result<String, JssError>\fR
+Calls \fBfrappe.model.utils.user_settings.save\fR.
+.TP
+\fBget_count(&self, doctype: &str, filters_json: &str, fields_json: &str, distinct: bool) -> Result<String, JssError>\fR
+Calls \fBfrappe.desk.reportview.get_count\fR.
+.TP
+\fBget_list(&self, doctype, fields_json, filters_json, or_filters_json, order_by, start, page_length, view, group_by, with_comment_count) -> Result<String, JssError>\fR
+Gets a list of documents with complex filters. Calls
+\fBfrappe.desk.reportview.get_list\fR. See \fBSYNOPSIS\fR for full parameter
+types.
+.TP
+\fBget_list_settings(&self, doctype: &str) -> Result<String, JssError>\fR
+Calls \fBfrappe.desk.listview.get_list_settings\fR.
+.TP
+\fBget_doctype_meta(&self, doctype: &str) -> Result<String, JssError>\fR
+Calls \fBfrappe.desk.form.load.getdoctype\fR.
+.TP
+\fBfile_list(&self, folder: &str, limit: u32, extra_filters: Option<Vec<(&str, &str, &str, &str)>>) -> Result<String, JssError>\fR
+Lists files in a folder using the resource API.
 .TP
 \fBget_notifications(&self, limit: u32) -> Result<String, JssError>\fR
-Gets notification logs for the current user.
+Notification logs for the current user.
 .TP
 \fBget_events(&self, start: &str, end: &str) -> Result<String, JssError>\fR
-Gets calendar events for a date range.
+Calendar events for a date range.
 .TP
 \fBget_desktop_page(&self, name: &str, title: &str, public: bool) -> Result<String, JssError>\fR
-Gets desktop page (workspace) data. Calls \fBfrappe.desk.desktop.get_desktop_page\fR.
+Calls \fBfrappe.desk.desktop.get_desktop_page\fR.
 .TP
 \fBget_lazy_child_rows(&self, docname: &str, tab: &str) -> Result<String, JssError>\fR
-JSS‑specific: loads lazy child table rows. Calls \fBget_lazy_child_rows\fR.
+JSS\-specific: loads lazy child table rows.
 .PP
-\fBBoot data convenience accessors:\fR
+\fBWorkflow helpers (typed):\fR
+.TP
+\fBworkflow_transitions(&self, doctype: &str, name: &str) -> Result<Vec<WorkflowTransition>, JssError>\fR
+Returns typed list of transitions for a document.
+.TP
+\fBapply_workflow(&self, doctype: &str, name: &str, action: &str) -> Result<serde_json::Value, JssError>\fR
+Applies a workflow action to a document.
+.TP
+\fBtransition_to_state(&self, doctype: &str, name: &str, target_state: &str) -> Result<serde_json::Value, JssError>\fR
+Finds the transition whose \fBnext_state\fR equals \fItarget_state\fR and
+applies its action. Returns \fBJssError::Validation\fR if no such transition
+exists.
+.PP
+\fBBoot data accessors:\fR
 .TP
 \fBuser_info_map(&self) -> Option<&HashMap<String, BootUserInfo>>\fR
 .TP
@@ -190,11 +238,11 @@ JSS‑specific: loads lazy child table rows. Calls \fBget_lazy_child_rows\fR.
 \fBfrequent_links(&self) -> Option<&[FrequentLink]>\fR
 .TP
 \fBis_developer_mode(&self) -> bool\fR
-Returns true when \fBdeveloper_mode != 0\fR in the boot data.
+True when \fBdeveloper_mode != 0\fR in boot.
 .TP
 \fBis_read_only(&self) -> bool\fR
-Directly from the \fBread_only\fR field in boot data.
-.SS AuthMode (enum)
+Reflects the \fBread_only\fR field from boot.
+.SS AuthMode
 Authentication strategy selection.
 .PP
 .nf
@@ -210,9 +258,12 @@ Authentication strategy selection.
 \fB}\fR
 .fi
 .IP \[bu] 2
-\fBSession\fR – logs in with email/password, manages session cookies, and automatically extracts the CSRF token from /app.
+\fBSession\fR \- logs in with email/password, manages session cookies, and
+extracts the CSRF token and boot data from \fB/app\fR.
 .IP \[bu]
-\fBToken\fR – sends an \fBAuthorization: token api_key:api_secret\fR header on every request. No explicit login or logout is required.
+\fBToken\fR \- sends \fBAuthorization: token api_key:api_secret\fR on every
+request. No explicit login or logout is required. \fBlogout()\fR is a no-op
+in this mode.
 .SS ClientConfig
 Configuration container validated at client creation.
 .PP
@@ -226,13 +277,19 @@ Configuration container validated at client creation.
     \fBpub max_retries: u32,           // default 3\fR
     \fBpub user_agent: String,\fR
     \fBpub insecure_ssl: bool,         // default false\fR
+    \fBpub readonly_guard: bool,       // default true\fR
 \fB}\fR
 .fi
 .PP
-\fBMethod:\fR
+\fBMethods:\fR
 .TP
 \fBvalidate(&self) -> Result<(), JssError>\fR
-Ensures HTTPS is used unless \fBinsecure_ssl\fR is true, and that email and password are not empty for \fBSession\fR mode.
+Ensures HTTPS unless \fBinsecure_ssl\fR is true. For \fBSession\fR mode it
+requires non\-empty email and password. Rejects dangerous URL schemes
+(\fBdata\fR, \fBjavascript\fR, \fBvbscript\fR).
+.TP
+\fBfrom_env() -> Result<Self, JssError>\fR
+Builds a config from environment variables (see \fBCONFIGURATION\fR).
 .SS JssError
 Comprehensive error type covering all failure modes.
 .PP
@@ -260,10 +317,15 @@ Comprehensive error type covering all failure modes.
 \fBHelper methods:\fR
 .TP
 \fBfrom_api_response(status: StatusCode, body: &str) -> JssError\fR
-Parses a Frappe JSON error body. If \fBexc_type\fR is present, returns \fBApiError\fR; otherwise returns \fBHttp\fR.
+Parses a Frappe JSON error body. If \fBexc_type\fR is present, returns
+\fBApiError\fR; otherwise returns \fBHttp\fR.
 .TP
 \fBstatus_code(&self) -> StatusCode\fR
-Maps each variant to an appropriate HTTP status code (e.g., \fBConfig\fR → 500, \fBNetwork\fR → 502, \fBAuth\fR → 401, \fBCsrf\fR → 403, \fBRateLimited\fR → 429).
+Maps each variant to an HTTP status code: \fBConfig\fR, \fBValidation\fR,
+\fBInternal\fR, \fBParse\fR, \fBFileOperation\fR → 500; \fBNetwork\fR → 502;
+\fBHttp\fR and \fBApiError\fR → carried status; \fBAuth\fR,
+\fBNotAuthenticated\fR, \fBExpired\fR → 401; \fBCsrf\fR, \fBPermission\fR,
+\fBSitenameMismatch\fR → 403; \fBRateLimited\fR → 429; \fBCancelled\fR → 503.
 .SS SessionInfo
 Session data stored after a successful login.
 .PP
@@ -277,19 +339,21 @@ Session data stored after a successful login.
 \fB}\fR
 .fi
 .IP \[bu] 2
-\fBsid\fR – session ID from the login response.
+\fBsid\fR \- session ID from the login response (or "token\-mode" literal).
 .IP \[bu]
-\fBcsrf_token\fR – token extracted from the \fB/app\fR page.
+\fBcsrf_token\fR \- token extracted from the \fB/app\fR page.
 .IP \[bu]
-\fBfull_name\fR – user’s full name (from boot or login response).
+\fBfull_name\fR \- user's full name (from boot or login response).
 .IP \[bu]
-\fBsitename\fR – site name from \fBfrappe.boot\fR.
+\fBsitename\fR \- site name from \fBfrappe.boot\fR.
 .IP \[bu]
-\fBroles\fR – user role list.
+\fBroles\fR \- user role list.
 .SS FrappeBoot and related types
-Data structure deserialized from the JavaScript \fBfrappe.boot\fR object on the \fB/app\fR page. All fields have defaults (mostly \fBOption\fR or empty collections). The full definition can be found in the source; here are the most important fields:
+Data structure deserialized from the JavaScript \fBfrappe.boot\fR object on
+the \fB/app\fR page. All fields have defaults (mostly \fBOption\fR or empty
+collections), so missing keys never fail the whole deserialization.
 .PP
-\fBFrappeBoot\fR:
+\fBFrappeBoot\fR (most important fields):
 .RS 4
 .nf
 \fBpub user: BootUser,\fR
@@ -299,47 +363,81 @@ Data structure deserialized from the JavaScript \fBfrappe.boot\fR object on the 
 \fBpub app_logo_url: Option<String>,\fR
 \fBpub home_page: Option<String>,\fR
 \fBpub allow_modules: Vec<String>,\fR
-\fBpub can_select: Vec<String>,\fR  (and similar permission vectors)
+\fBpub can_select: Vec<String>,\fR
+\fBpub can_create: Vec<String>,\fR
+\fBpub can_write: Vec<String>,\fR
+\fBpub can_read: Vec<String>,\fR
+\fBpub can_submit: Vec<String>,\fR
+\fBpub can_cancel: Vec<String>,\fR
+\fBpub can_delete: Vec<String>,\fR
+\fBpub can_get_report: Vec<String>,\fR
 \fBpub all_reports: HashMap<String, ReportMeta>,\fR
+\fBpub module_wise_workspaces: HashMap<String, Vec<String>>,\fR
 \fBpub dashboards: Vec<DashboardMeta>,\fR
+\fBpub single_types: Vec<String>,\fR
+\fBpub calendars: Vec<String>,\fR
+\fBpub treeviews: Vec<String>,\fR
+\fBpub module_app: HashMap<String, String>,\fR
+\fBpub app_data: Vec<AppData>,\fR
 \fBpub user_info: HashMap<String, BootUserInfo>,\fR
 \fBpub sidebar_pages: SidebarPages,\fR
 \fBpub navbar_settings: Option<NavbarSettings>,\fR
 \fBpub versions: HashMap<String, String>,\fR
 \fBpub lang_dict: HashMap<String, String>,\fR
+\fBpub lang: Option<String>,\fR
+\fBpub timezone_info: Option<serde_json::Value>,\fR
+\fBpub page_info: HashMap<String, PageInfo>,\fR
 \fBpub frequently_visited_links: Vec<FrequentLink>,\fR
 \fBpub developer_mode: i32,\fR
 \fBpub read_only: bool,\fR
-\fB...\fR
+\fBpub socketio_port: Option<u16>,\fR
+\fBpub desk_settings: HashMap<String, serde_json::Value>,\fR
+\fBpub desk_theme: Option<String>,\fR
 .fi
 .RE
 .PP
 \fBBootUser\fR:
-Contains the user’s \fBname\fR, \fBemail\fR, \fBfull_name\fR, \fBroles\fR, \fBuser_type\fR, \fBpermissions\fR (a map of doctype to allowed actions), and permission vectors like \fBcan_select\fR, \fBcan_write\fR, etc.
+Contains \fBname\fR, \fBemail\fR, \fBfull_name\fR, \fBroles\fR,
+\fBuser_type\fR, \fBpermissions\fR (map of doctype to allowed actions), and
+permission vectors \fBcan_select\fR, \fBcan_create\fR, \fBcan_write\fR,
+\fBcan_read\fR, \fBcan_submit\fR, \fBcan_cancel\fR, \fBcan_delete\fR,
+\fBcan_get_report\fR, and \fBall_reports\fR.
 .PP
-\fBSysDefaults\fR: \fBdefault_app: Option<String>\fR, \fBtime_zone: Option<String>\fR.
+\fBSysDefaults\fR: \fBdefault_app: Option<String>\fR,
+\fBtime_zone: Option<String>\fR.
 .PP
-\fBReportMeta\fR: \fBmodified\fR, \fBtitle\fR, \fBref_doctype\fR, \fBreport_type\fR.
+\fBReportMeta\fR: \fBmodified\fR, \fBtitle\fR, \fBref_doctype\fR,
+\fBreport_type\fR.
 .PP
 \fBDashboardMeta\fR: \fBname: String\fR.
 .PP
-\fBAppData\fR: \fBapp_name\fR, \fBapp_title\fR, \fBapp_route\fR, \fBapp_logo_url\fR, \fBmodules\fR, \fBworkspaces\fR.
+\fBAppData\fR: \fBapp_name\fR, \fBapp_title\fR, \fBapp_route\fR,
+\fBapp_logo_url\fR, \fBmodules\fR, \fBworkspaces\fR.
 .PP
-\fBBootUserInfo\fR: \fBfullname\fR, \fBimage\fR, \fBname\fR, \fBemail\fR, \fBtime_zone\fR.
+\fBBootUserInfo\fR: \fBfullname\fR, \fBimage\fR, \fBname\fR, \fBemail\fR,
+\fBtime_zone\fR.
 .PP
-\fBSidebarPages\fR: \fBworkspace_setup_completed: Option<i32>\fR, \fBpages: Vec<SidebarPage>\fR, \fBhas_access: bool\fR, \fBhas_create_access: bool\fR.
+\fBSidebarPages\fR: \fBworkspace_setup_completed: Option<i32>\fR,
+\fBpages: Vec<SidebarPage>\fR, \fBhas_access: bool\fR,
+\fBhas_create_access: bool\fR.
 .PP
-\fBSidebarPage\fR: Many fields, see source code.
+\fBSidebarPage\fR: \fBname\fR, \fBtitle\fR, \fBfor_user\fR,
+\fBparent_page\fR, \fBcontent\fR, \fBpublic\fR, \fBmodule\fR, \fBicon\fR,
+\fBindicator_color\fR, \fBis_hidden\fR, \fBapp\fR, \fBtype\fR,
+\fBlink_type\fR, \fBlink_to\fR, \fBexternal_link\fR, \fBlabel\fR.
 .PP
-\fBNavbarSettings\fR: \fBsettings_dropdown: Vec<NavbarItem>\fR, \fBhelp_dropdown: Vec<NavbarItem>\fR.
+\fBNavbarSettings\fR: \fBsettings_dropdown: Vec<NavbarItem>\fR,
+\fBhelp_dropdown: Vec<NavbarItem>\fR.
 .PP
-\fBNavbarItem\fR: \fBitem_label\fR, \fBitem_type\fR, \fBaction\fR, \fBroute\fR, \fBhidden\fR, \fBis_standard\fR.
+\fBNavbarItem\fR: \fBitem_label\fR, \fBitem_type\fR, \fBaction\fR,
+\fBroute\fR, \fBhidden\fR, \fBis_standard\fR.
 .PP
 \fBPageInfo\fR: \fBtitle\fR, \fBmodified\fR.
 .PP
 \fBFrequentLink\fR: \fBroute: String\fR, \fBcount: i32\fR.
 .SS AuthEndpoints (trait)
-Implemented by \fBRjssClient\fR. Provides static URL builders that can be used without a client instance.
+Implemented by \fBRjssClient\fR. Provides static URL builders usable without
+a client instance.
 .PP
 .nf
 \fBpub trait AuthEndpoints {\fR
@@ -351,36 +449,39 @@ Implemented by \fBRjssClient\fR. Provides static URL builders that can be used w
 \fB}\fR
 .fi
 .PP
-Each yields URLs such as \fB/api/method/login\fR, \fB/api/method/logout\fR, etc.
+Each yields URLs such as \fB/api/method/login\fR, \fB/api/method/logout\fR,
+\fB/api/method/frappe.auth.get_csrf_token\fR,
+\fB/api/method/frappe.auth.get_logged_user\fR, and \fB/app\fR.
 .SS ReportBuilder
-Built by \fBRjssClient::report()\fR. Allows chaining filters before executing a report.
+Built by \fBRjssClient::report()\fR. Chainable filters before executing.
 .PP
 \fBMethods:\fR
 .TP
 \fBadd_filter(mut self, field: &str, value: &str) -> Self\fR
-Adds a (field, value) filter. Can be chained.
+Adds a \fB(field, value)\fR filter. Chainable.
 .TP
 \fBasync run_raw(&self) -> Result<String, JssError>\fR
-Runs the report and returns the raw JSON string.
+Runs the report and returns raw JSON.
 .TP
 \fBasync run<T: DeserializeOwned>(&self) -> Result<T, JssError>\fR
-Runs the report and deserializes directly into \fIT\fR.
+Runs the report and deserializes into \fIT\fR.
 .SS ResourceBuilder
-Built by \fBRjssClient::doctype()\fR. Builder for document listing with filters, field selection, ordering, and pagination.
+Built by \fBRjssClient::doctype()\fR. Builder for document listing with
+filters, field selection, ordering, and pagination.
 .PP
 \fBMethods:\fR
 .TP
 \fBfilter(mut self, field: &str, operator: &str, value: &str) -> Self\fR
-Adds a filter condition (e.g., \fBfilter("status","=","Open")\fR).
+Adds a filter condition (e.g.\fB.filter("status", "=", "Open")\fR).
 .TP
 \fBfields(mut self, fields: Vec<&str>) -> Self\fR
-Specifies which fields to return (JSON array).
+Selects which fields to return (sent as a JSON array).
 .TP
 \fBorder_by(mut self, order: &str) -> Self\fR
-Ordering (e.g., \fB"creation desc"\fR).
+Ordering (e.g.\fB"creation desc"\fR).
 .TP
 \fBlimit(mut self, limit: u32) -> Self\fR
-Page size.
+Page size. If \fB0\fR is passed, falls back to \fB200\fR with a warning.
 .TP
 \fBlimit_start(mut self, start: u32) -> Self\fR
 Starting index.
@@ -392,9 +493,61 @@ Executes and returns raw JSON.
 Executes and deserializes into \fIT\fR.
 .TP
 \fBasync all<T: DeserializeOwned>(&self) -> Result<Vec<T>, JssError>\fR
-Automatically paginates with a page size of 200, collecting all records into a \fBVec<T>\fR.
+Automatically paginates with a page size of \fB200\fR, collecting all
+records into a \fBVec<T>\fR.
+.SS WorkflowTransition and DocRef
+Types exposed from \fBlibrjss::client::methods::workflow\fR.
+.PP
+.nf
+\fBpub struct WorkflowTransition {\fR
+    \fBpub action: String,\fR
+    \fBpub state: String,\fR
+    \fBpub next_state: Option<String>,\fR
+    \fBpub allowed: Option<String>,\fR
+    \fBpub allow_self_approval: Option<i32>,\fR
+\fB}\fR
+
+\fBpub struct DocRef<'a> {\fR
+    \fBpub doctype: &'a str,\fR
+    \fBpub name: &'a str,\fR
+\fB}\fR
+.fi
+.SH READ-ONLY GUARD
+By default, \fBlibrjss\fR installs a read\-only guard
+(\fBreadonly_guard: true\fR). Any non\-idempotent request
+(\fBPOST\fR, \fBPUT\fR, \fBDELETE\fR) whose path is not in the guard
+whitelist is rejected with \fBJssError::Validation\fR before any network
+I/O is performed.
+.PP
+Safe HTTP methods (\fBGET\fR, \fBHEAD\fR, \fBOPTIONS\fR) always pass.
+.PP
+Whitelisted POST paths include all read\-style Frappe endpoints, for example:
+.RS 4
+.nf
+/api/method/login
+/api/method/logout
+/api/method/frappe.auth.get_logged_user
+/api/method/frappe.client.get_count
+/api/method/frappe.client.get_list
+/api/method/frappe.client.get_value
+/api/method/frappe.client.get
+/api/method/frappe.client.validate_link
+/api/method/frappe.desk.reportview.get_list
+/api/method/frappe.desk.reportview.get_count
+/api/method/frappe.desk.search.search_link
+/api/method/frappe.desk.form.load.getdoc
+/api/method/frappe.desk.form.load.getdoctype
+/api/method/frappe.desk.desktop.get_desktop_page
+/api/method/frappe.utils.global_search.search
+/api/method/frappe.model.workflow.get_transitions
+.fi
+.RE
+.PP
+To disable the guard for a client that must mutate data, set
+\fBreadonly_guard: false\fR in \fBClientConfig\fR, or set the environment
+variable \fBJSS_READONLY_GUARD=false\fR.
 .SH USAGE EXAMPLES
-.SS 1. Setup and session authentication
+.SS 1. Session authentication
 .nf
 use librjss::{RjssClient, ClientConfig, AuthMode};
 use secrecy::SecretString;
@@ -405,11 +558,18 @@ let config = ClientConfig {
         email: SecretString::new("user@example.com".into()),
         password: SecretString::new("secret".into()),
     },
-    ..Default::default()
+    expected_sitename: None,
+    required_roles: vec![],
+    timeout_secs: 30,
+    max_retries: 3,
+    user_agent: "myapp/1.0".into(),
+    insecure_ssl: false,
+    readonly_guard: true,
 };
 let mut client = RjssClient::new(config)?;
 client.authenticate().await?;
-println!("Logged in as: {:?}", client.session_info().unwrap().full_name);
+println!("Logged in as: {:?}",
+    client.session_info().and_then(|s| s.full_name.as_ref()));
 .fi
 .SS 2. Basic GET and POST
 .nf
@@ -421,18 +581,19 @@ let resp = client.authenticated_post(
 .fi
 .SS 3. File upload
 .nf
-let image_bytes = std::fs::read("photo.png")?;
+let bytes = std::fs::read("photo.png")?;
 let result = client.upload_file(
-    "photo.png", image_bytes, "Customer", "CUST-001", "image"
+    "photo.png", bytes, "Customer", "CUST-001", "image"
 ).await?;
-println!("Upload response: {}", result);
 .fi
 .SS 4. File download
 .nf
 let bytes = client.download_file("/files/photo.png").await?;
 std::fs::write("local.png", bytes)?;
 // or directly
-client.download_file_to_path("/files/photo.png", Path::new("local.png")).await?;
+client
+    .download_file_to_path("/files/photo.png", Path::new("local.png"))
+    .await?;
 .fi
 .SS 5. Download a PDF (Kartu Piutang)
 .nf
@@ -448,6 +609,7 @@ std::fs::write("piutang.pdf", pdf_bytes)?;
 .nf
 #[derive(Deserialize)]
 struct MyReportRow { /* ... */ }
+
 let rows: Vec<MyReportRow> = client
     .report("Sales Analytics")
     .add_filter("from_date", "2026-01-01")
@@ -466,7 +628,6 @@ let list: serde_json::Value = client
     .execute()
     .await?;
 
-// Fetch all records
 let all: Vec<ToDo> = client
     .doctype("ToDo")
     .filter("status", "=", "Cancelled")
@@ -478,24 +639,38 @@ let all: Vec<ToDo> = client
 let doc = client.get_doc("Customer", "CUST-001").await?;
 
 #[derive(Serialize)]
-struct NewCustomer { customer_name: String, customer_group: String }
-let new_cust = NewCustomer { ... };
-let created = client.create_doc("Customer", &new_cust).await?;
-
+struct NewCustomer {
+    customer_name: String,
+    customer_group: String,
+}
+let created = client.create_doc("Customer", &new_customer).await?;
 let updated = client.update_doc("Customer", "CUST-001", &modification).await?;
 let deleted = client.delete_doc("Customer", "OLD-CUST").await?;
 .fi
-.SS 9. Calling a server method
+.SS 9. Workflow transition
+.nf
+let transitions = client
+    .workflow_transitions("Surat Diskresi", "SD-0001")
+    .await?;
+for t in &transitions {
+    println!("{} -> {:?}", t.action, t.next_state);
+}
+
+// Apply a specific target state
+client
+    .transition_to_state("Surat Diskresi", "SD-0001", "Approved")
+    .await?;
+.fi
+.SS 10. Calling a server method
 .nf
 use std::collections::HashMap;
+
 let mut args = HashMap::new();
 args.insert("doctype".into(), "Sales Invoice".into());
 args.insert("docname".into(), "SINV-0001".into());
-let result = client.call_method("frappe.email.send", Some(args)).await?;
-.fi
-.SS 10. Global search
-.nf
-let results = client.global_search("customer", 10, Some("Customer")).await?;
+let result = client
+    .call_method("frappe.client.get_value", Some(args))
+    .await?;
 .fi
 .SS 11. Error handling
 .nf
@@ -508,10 +683,12 @@ match client.authenticated_get("/api/resource/ToDo").await {
         tokio::time::sleep(Duration::from_secs(secs)).await;
         // retry
     }
+    Err(JssError::Validation(msg)) if msg.contains("READ-ONLY GUARD") => {
+        eprintln!("Blocked by read-only guard: {msg}");
+    }
     Err(e) => {
         eprintln!("Other error: {}", e);
-        let status_code = e.status_code();
-        // ...
+        let _ = e.status_code();
     }
     Ok(data) => { /* process data */ }
 }
@@ -527,96 +704,88 @@ if let Some(boot) = client.boot() {
     if client.is_developer_mode() {
         println!("Developer mode active");
     }
+    println!("Accessible doctypes: {:?}",
+        client.accessible_doctypes());
 }
 .fi
-.SH CONFIGURATION (ENVIRONMENT VARIABLES FOR CLI)
-The following variables are used by the \fBcli_auth\fR binary and can be adopted in your own applications:
+.SH CONFIGURATION (ENVIRONMENT VARIABLES)
+The following variables are consumed by \fBClientConfig::from_env()\fR and
+can be adopted in your own applications. They are also used by the bundled
+\fBverify_readonly\fR binary.
 .TP
-\fBJSS_BASE_URL\fR
-Required. Base URL of the JSS instance.
+\fBJSS_BASE_URL\fR or \fBJSS_URL\fR
+Required. Base URL of the JSS instance. Trailing slash is stripped.
 .TP
-\fBJSS_EMAIL\fR
-Email for session auth.
+\fBJSS_TOKEN_KEY\fR
+API key for token authentication. If set, \fBJSS_TOKEN_SECRET\fR must also
+be set. Takes precedence over email/password.
 .TP
-\fBJSS_PASSWORD\fR
-Password for session auth.
+\fBJSS_TOKEN_SECRET\fR
+API secret for token authentication.
 .TP
-\fBJSS_TOKEN_API_KEY\fR
-API key for token auth.
+\fBJSS_EMAIL\fR or \fBJSS_USR\fR
+Email for session authentication. Required when \fBJSS_TOKEN_KEY\fR is not
+set.
 .TP
-\fBJSS_TOKEN_API_SECRET\fR
-API secret for token auth.
+\fBJSS_PASSWORD\fR or \fBJSS_PWD\fR
+Password for session authentication.
 .TP
 \fBJSS_EXPECTED_SITENAME\fR
-Optional. Expected site name; login fails if the boot sitename does not match.
+Optional. Login fails with \fBSitenameMismatch\fR if the boot sitename does
+not match.
 .TP
 \fBJSS_REQUIRED_ROLES\fR
-Optional. Comma‑separated required roles.
+Optional. Comma\-separated required roles; login fails if the user does not
+hold at least one.
 .TP
 \fBJSS_TIMEOUT_SECS\fR
-Request timeout in seconds (default 30).
+Request timeout in seconds. Default \fB30\fR.
 .TP
 \fBJSS_MAX_RETRIES\fR
-Maximum retry attempts (default 3).
+Maximum retry attempts. Default \fB3\fR.
 .TP
 \fBJSS_USER_AGENT\fR
-Custom User‑Agent header.
+Custom User\-Agent header. Default \fBlibrjss/2.3.0\fR.
 .TP
 \fBJSS_INSECURE_SSL\fR
-Set "true" to accept invalid TLS certificates (e.g., self‑signed).
-.SH MOCK SERVER FOR DEVELOPMENT
-A full mock server is available at \fBexamples/jss_mock_server.rs\fR. It replicates the behaviour of a real JSS server:
+Set to \fBtrue\fR, \fB1\fR, or \fByes\fR to accept invalid TLS certificates
+(e.g. self\-signed). Also relaxes the HTTPS\-only check in
+\fBClientConfig::validate\fR.
+.TP
+\fBJSS_READONLY_GUARD\fR
+Set to \fBfalse\fR, \fB0\fR, or \fBno\fR to disable the read\-only guard.
+Default is enabled.
+.SH VERIFY_READONLY BINARY
+The crate ships a small binary \fBverify_readonly\fR that snapshots doctype
+counts before and after running an operation, then reports any delta.
+.PP
+Usage:
+.nf
+\fBverify_readonly snapshot <file.json>\fR
+\fBverify_readonly compare <before.json> <after.json>\fR
+.fi
+.PP
+The list of doctypes to check is compiled in. Exit codes:
+.RS 4
 .IP \[bu] 2
-\fBPOST /api/method/login\fR → sets cookie + JSON
+\fB0\fR \- no change detected (server clean).
 .IP \[bu]
-\fBGET  /app\fR → HTML with \fBfrappe.boot\fR
+\fB1\fR \- usage error or I/O error.
 .IP \[bu]
-\fBGET  /api/method/frappe.auth.get_logged_user\fR
-.IP \[bu]
-\fBPOST /api/method/logout\fR
-.IP \[bu]
-\fBGET  /api/method/frappe.auth.get_csrf_token\fR (returns 417)
-.PP
-Start it with:
-.PP
-\fBcargo run --example jss_mock_server\fR
-.PP
-Then point the client to \fBhttp://127.0.0.1:8080\fR and set \fBJSS_INSECURE_SSL=true\fR.
+\fB2\fR \- change detected on at least one doctype.
+.RE
 .SH TESTING
 Unit tests (no server required):
 .PP
 \fBcargo test --lib\fR
 .PP
-Integration tests require the mock server to be running. Once the server is up:
+Integration tests use \fBwiremock\fR and run without a live server.
+The test file \fBtests/fixtures/real_app_page.html\fR is used by
+\fBapp_parser\fR to verify parsing of a real \fBfrappe.boot\fR payload.
 .PP
-\fBcargo test --test client_tests\fR
-\fBcargo test --test file_tests\fR
-\fBcargo test --test report_tests\fR
-\fBcargo test --test resource_tests\fR
+Full suite:
 .PP
-Or run everything:
-.PP
-\fBcargo test --workspace\fR
-.SH CI PIPELINE
-The file \fB.github/workflows/ci.yml\fR runs on every push/PR to master:
-.IP \[bu] 2
-Format check (\fBrustfmt\fR)
-.IP \[bu]
-Lint (\fBclippy -D warnings\fR)
-.IP \[bu]
-\fBcargo check --workspace\fR
-.IP \[bu]
-Unit tests (\fBcargo test --lib\fR)
-.IP \[bu]
-Start mock server → integration tests
-.IP \[bu]
-Release build
-.IP \[bu]
-Upload \fBcli_auth\fR artifact
-.SH LICENSE
-MIT License – see LICENSE file.
-.PP
-Copyright (c) 2026 mroczect <mroczect@proton.me>
+\fBcargo test --workspace --all-targets --all-features\fR
 .SH SEE ALSO
 .BR cargo (1),
 .BR reqwest (7),
